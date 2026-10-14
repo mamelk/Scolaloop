@@ -272,7 +272,11 @@ class Incident(models.Model):
     bus = models.ForeignKey(Bus, on_delete=models.CASCADE, related_name="incidents")
     type_incident = models.CharField(max_length=30, choices=INCIDENT_TYPES)
     description = models.TextField(blank=True, help_text="Description libre (optionnelle).")
-    timestamp = models.DateTimeField(auto_now_add=True)
+    timestamp = models.DateTimeField(
+        default=timezone.now,
+        help_text="Horodatage fourni par le téléphone du chauffeur "
+        "(sync offline) ; heure actuelle si absent.",
+    )
     resolved = models.BooleanField(default=False)
 
     class Meta:
@@ -288,7 +292,11 @@ class GPSLog(models.Model):
     latitude = models.FloatField()
     longitude = models.FloatField()
     speed_kmh = models.FloatField(default=0.0, help_text="Vitesse instantanée estimée (km/h).")
-    timestamp = models.DateTimeField(auto_now_add=True)
+    timestamp = models.DateTimeField(
+        default=timezone.now,
+        help_text="Horodatage du point GPS fourni par le téléphone du chauffeur "
+        "(sync offline) ; heure actuelle si absent.",
+    )
 
     class Meta:
         ordering = ["timestamp"]

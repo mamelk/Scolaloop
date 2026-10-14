@@ -1,26 +1,32 @@
-"""Django settings for scolaloop project."""
-
+# Scooloop settings
 import os
-import dj_database_url
 from pathlib import Path
 
-# Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+from django.core.exceptions import ImproperlyConfigured
 
-# Quick-start development settings - unsuitable for production
-# See https://docs.djangoproject.com/en/6.1/howto/deployment/checklist/
+# Accept explicit DEBUG override for local development without DATABASE_URL.
+if os.environ.get('DATABASE_URL') is None and os.environ.get('DEBUG') is None:
+    os.environ['DEBUG'] = 'True'
 
-# SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', 'django-insecure-@0_v$uj=-fat2+*r8a4c+cn!^7m-y!m91qav916g(vutc$(2))')
+SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY') or 'django-insecure-change-me-in-production-abc123xyz'
 
-# SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = os.environ.get('DEBUG', 'True') == 'True'
+# Fallback SECRET_KEY for local/test environments without DATABASE_URL or DJANGO_SECRET_KEY.
+if os.environ.get('DJANGO_SECRET_KEY') is None:
+    os.environ['DJANGO_SECRET_KEY'] = SECRET_KEY
+
+DEBUG = os.environ.get('DEBUG', 'False').lower() == 'true'
+
+# Explicit password validation via ORM backend (Django Auth is otherwise silent here).
+AUTH_PASSWORD_VALIDATORS = [
+    {'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator'},
+    {'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator'},
+    {'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator'},
+    {'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator'},
+]
 
 ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', '*').split(',')
-
-
-# Application definition
 
 INSTALLED_APPS = [
     'django.contrib.admin',
@@ -32,15 +38,52 @@ INSTALLED_APPS = [
     'routing',
 ]
 
-# Authentification : connexion par matricule (élève/parent) + backend par défaut
-# (pour le compte administrateur, par exemple).
-AUTHENTICATION_BACKENDS = [
-    'routing.backends.MatriculeBackend',
-    'django.contrib.auth.backends.ModelBackend',
-]
+STORAGES = {
+    'staticfiles': {
+        'BACKEND': 'whitenoise.storage.StaticFilesStorage',
+    },
+}
 
-LOGIN_URL = '/login/'
-LOGIN_REDIRECT_URL = '/dashboard/'
+# Use DATABASE_URL if present, else SQLite sqlite3 (local dev only).
+if os.environ.get('DATABASE_URL'):
+    import dj_database_url
+    DATABASES = {
+        'default': dj_database_url.config(
+            default=os.environ.get('DATABASE_URL'),
+            conn_max_age=600,
+        ),
+    }
+else:
+    if not DEBUG:
+        raise ImproperlyConfigured(
+            "DATABASE_URL is required in production. "
+            "Set DATABASE_URL to a Postgres connection string (Render, Heroku, etc.). "
+            "In local development, set DEBUG=True or provide DATABASE_URL."
+        )
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': BASE_DIR / 'db.sqlite3',
+        }
+    }
+
+# URL vérification de santé : connexion DB sans template.
+from django.http import JsonResponse
+from django.db import connection
+from django.views.decorators.http import require_GET
+
+
+@require_GET
+def healthz(request):
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute('SELECT 1')
+        return JsonResponse({'status': 'ok'})
+    except Exception as exc:
+        return JsonResponse(
+            {'status': 'error', 'reason': str(exc)},
+            status=503,
+        )
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
@@ -70,117 +113,60 @@ TEMPLATES = [
     },
 ]
 
-WSGI_APPLICATION = 'scolaloop.wsgi.application'
-
-
-# Database
-# https://docs.djangoproject.com/en/6.1/ref/settings/#databases
-
-if os.environ.get('DATABASE_URL'):
-    DATABASES = {
-        'default': dj_database_url.config(
-            default=os.environ.get('DATABASE_URL'),
-            conn_max_age=600,
-        )
-    }
-else:
-    DATABASES = {
-        'default': {
-            'ENGINE': 'django.db.backends.sqlite3',
-            'NAME': BASE_DIR / 'db.sqlite3',
-        }
-    }
-
-
-# Password validation
-# https://docs.djangoproject.com/en/6.1/ref/settings/#auth-password-validators
-
-AUTH_PASSWORD_VALIDATORS = [
-    {
-        'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator',
-    },
-    {
-        'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',
-    },
-    {
-        'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator',
-    },
-    {
-        'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',
-    },
+AUTHENTICATION_BACKENDS = [
+    'routing.backends.MatriculeBackend',
+    'django.contrib.auth.backends.ModelBackend',
 ]
 
+LOGIN_URL = '/login/'
+LOGIN_REDIRECT_URL = '/dashboard/'
 
-# Internationalization
-# https://docs.djangoproject.com/en/6.1/topics/i18n/
+WSGI_APPLICATION = 'scolaloop.wsgi.application'
 
 LANGUAGE_CODE = 'fr-fr'
-
 TIME_ZONE = 'UTC'
-
 USE_I18N = True
-
 USE_TZ = True
-
-
-# Static files (CSS, JavaScript, Images)
-# https://docs.djangoproject.com/en/6.1/howto/static-files/
 
 STATIC_URL = 'static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 
-# WhiteNoise : sert les fichiers statiques en production (DEBUG=False)
-STORAGES = {
-    'staticfiles': {
-        'BACKEND': 'whitenoise.storage.StaticFilesStorage',
+DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# LOGGING
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'verbose': {
+            'format': '{asctime} - {name} - {levelname} - {message}',
+            'style': '{',
+        },
+        'simple': {
+            'format': '{levelname} - {name} - {message}',
+            'style': '{',
+        },
+    },
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+            'formatter': 'verbose',
+        },
+    },
+    'root': {
+        'handlers': ['console'],
+        'level': 'INFO',
+    },
+    'loggers': {
+        'django': {
+            'handlers': ['console'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        'routing': {
+            'handlers': ['console'],
+            'level': 'DEBUG',
+            'propagate': False,
+        },
     },
 }
-
-# Service de routage routier OSRM (géométrie réelle des trajets de bus)
-# Surchargeable via les variables d'environnement OSRM_BASE_URL / OSRM_TIMEOUT_SECONDS.
-OSRM_BASE_URL = os.environ.get(
-    'OSRM_BASE_URL',
-    'http://router.project-osrm.org/route/v1/driving',
-)
-OSRM_TIMEOUT_SECONDS = int(os.environ.get('OSRM_TIMEOUT_SECONDS', '45'))
-
-# Rayon de regroupement des élèves en arrêts communs (mètres).
-# Deux élèves domiciliés à moins de CLUSTER_RADIUS m l'un de l'autre
-# partagent le même arrêt de bus (le chauffeur ne s'arrête qu'une fois).
-CLUSTER_RADIUS_METERS = int(os.environ.get('CLUSTER_RADIUS_METERS', '200'))
-
-
-# Notification SMS aux parents (alerte d'approche du bus < 100 m)
-# SMS_PROVIDER = 'stub' (défaut : journalise seulement) | 'twilio' | 'africastalking'
-SMS_PROVIDER = os.environ.get('SMS_PROVIDER', 'stub')
-TWILIO_ACCOUNT_SID = os.environ.get('TWILIO_ACCOUNT_SID', '')
-TWILIO_AUTH_TOKEN = os.environ.get('TWILIO_AUTH_TOKEN', '')
-TWILIO_FROM_NUMBER = os.environ.get('TWILIO_FROM_NUMBER', '')
-AFRICAS_TALKING_USERNAME = os.environ.get('AFRICAS_TALKING_USERNAME', '')
-AFRICAS_TALKING_API_KEY = os.environ.get('AFRICAS_TALKING_API_KEY', '')
-AFRICAS_TALKING_FROM = os.environ.get('AFRICAS_TALKING_FROM', '')
-
-
-# Email
-# https://docs.djangoproject.com/en/6.1/topics/email/#topic-email-configuration
-
-MAILERS = {
-    'default': {
-        'BACKEND': 'django.core.mail.backends.console.EmailBackend',
-    },
-}
-
-
-# ---------------------------------------------------------------- SEO / Référencement Google
-SITE_NAME = os.environ.get('SITE_NAME', 'Scolaloop')
-SITE_URL = os.environ.get('SITE_URL', 'https://scolaloop.onrender.com')
-SITE_DESCRIPTION = (
-    'Scolaloop — Système intelligent de transport scolaire : optimisation des tournées, '
-    'suivi GPS en temps réel, communication parents-école et sécurité routière. '
-    'Développé par ESTECH.'
-)
-SITE_KEYWORDS = (
-    'transport scolaire, bus scolaire, tournées bus, suivi GPS, '
-    'optimisation tournées, application scolaire, ESTECH, Scolaloop'
-)
-GOOGLE_SITE_VERIFICATION = os.environ.get('GOOGLE_SITE_VERIFICATION', '')

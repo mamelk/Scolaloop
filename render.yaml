@@ -2,8 +2,11 @@ services:
   - type: web
     name: scolaloop
     env: python
-    buildCommand: pip install -r requirements.txt && python manage.py collectstatic --noinput && python manage.py migrate && python manage.py ensure_superuser
-    startCommand: gunicorn scolaloop.wsgi:application
+    # Build sans accès base de données : l'hôte interne du Postgres ne résout
+    # pas depuis l'environnement de build (erreur « could not translate host name »).
+    # migrate + ensure_superuser s'exécutent au démarrage, dans le réseau privé.
+    buildCommand: pip install -r requirements.txt && python manage.py collectstatic --noinput
+    startCommand: python manage.py migrate && python manage.py ensure_superuser && gunicorn scolaloop.wsgi:application
     envVars:
       - key: DATABASE_URL
         fromDatabase:

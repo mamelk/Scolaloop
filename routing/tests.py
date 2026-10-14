@@ -176,10 +176,13 @@ class AutoAssignTests(TestCase):
         self.assertIsNotNone(s3.assigned_route)
         # BUS1 est plein : S3 rejoint BUS2.
         self.assertEqual(s3.assigned_route.bus, self.bus2)
-        # Feuille de route réoptimisée : 2 arrêts (S2 puis S3), ordre optimal.
+        # Feuille de route réoptimisée : S2 (0.002) et S3 (0.003) ne sont
+        # qu'à ~111 m l'un de l'autre → un seul arrêt commun (rayon de 200 m,
+        # CLUSTER_RADIUS_METERS) : le chauffeur s'arrête une fois pour les deux.
         route = self.bus2.routes.order_by("-created_at").first()
         stops = list(route.stops.order_by("order"))
-        self.assertEqual(len(stops), 2)
+        self.assertEqual(len(stops), 1)
+        self.assertIn("2 élèves", stops[0].stop.name)
         self.assertEqual(route.students_remaining, 2)
         self.assertIsNotNone(route.path_geometry)  # repli lignes droites (OSRM neutralisé)
         # L'API chauffeur reflète le nouvel itinéraire dès le prochain rafraîchissement.
@@ -252,29 +255,35 @@ class AutoAssignTests(TestCase):
 
 
 class SyncOfflineDataTests(TestCase):
+    databases = {'default'}
+    # Force the global URLconf so /api/sync-offline-data/ resolves.
+
     """Endpoint /api/sync-offline-data/ : resynchronisation groupée des données
     accumulées par le téléphone du chauffeur pendant une coupure réseau."""
 
-    def setUp(self):
-        self.school = School.objects.create(
+    @classmethod
+    def setUpTestData(cls):
+        cls.school = School.objects.create(
             code_ecole="ECOLE1",
             name="École Test",
             latitude=-11.6647,
             longitude=27.4794,
         )
-        self.driver_user = User.objects.create_user(username="BUS001", password="bus001")
-        self.bus = Bus.objects.create(
+        cls.driver_user = User.objects.create_user(username="BUS001", password="bus001")
+        cls.bus = Bus.objects.create(
             code_bus="BUS001",
-            school=self.school,
+            school=cls.school,
             capacity=30,
             driver_name="Chauffeur Test",
-            driver_user=self.driver_user,
+            driver_user=cls.driver_user,
         )
+
+    def setUp(self):
         self.client.force_login(self.driver_user)
 
     def _post(self, payload):
         return self.client.post(
-            "/api/sync-offline-data/",
+            '/api/sync-offline-data/',
             data=json.dumps(payload),
             content_type="application/json",
         )

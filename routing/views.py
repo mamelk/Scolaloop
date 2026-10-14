@@ -278,6 +278,36 @@ def home_view(request):
     return render(request, "routing/home.html", ctx)
 
 
+def electromenager_liste(request):
+    """Liste des offres d'electromenager."""
+    return render(request, "routing/electromenager_liste.html", {'title': 'Electromenager'})
+
+
+def electromenager_detail(request, metier_id):
+    """Détail d'une offre d'electromenager."""
+    return render(request, "routing/electromenager_detail.html", {'title': f'Electromenager {metier_id}', 'metier_id': metier_id})
+
+
+def metiers_metiers_liste(request):
+    """Liste des métiers métiers."""
+    return render(request, "routing/metiers_metiers_liste.html", {'title': 'Métiers Métiers'})
+
+
+def metiers_metiers_detail(request, metier_id):
+    """Détail d'un métier métier."""
+    return render(request, "routing/metiers_metiers_detail.html", {'title': f'Métiers Métiers {metier_id}', 'metier_id': metier_id})
+
+
+def sante_ally_liste(request):
+    """Liste des offres santé ally."""
+    return render(request, "routing/sante_ally_liste.html", {'title': 'Santé Ally'})
+
+
+def sante_ally_detail(request, metier_id):
+    """Détail d'une offre santé ally."""
+    return render(request, "routing/sante_ally_detail.html", {'title': f'Santé Ally {metier_id}', 'metier_id': metier_id})
+
+
 def about_view(request):
     """Page « À propos » : présentation du projet et de l'entreprise ESTECH."""
     ctx = _seo_context(
@@ -2193,8 +2223,6 @@ def _parse_iso_timestamp(value):
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)
     return dt
-
-
 @login_required
 def sync_offline_data(request):
     """API JSON (/api/sync-offline-data/) : resynchronisation groupée des données
@@ -2215,10 +2243,14 @@ def sync_offline_data(request):
     if bus is None:
         return JsonResponse({"error": "Aucun bus assigné à ce compte."}, status=403)
 
+    if not request.body:
+        return JsonResponse({"error": "Corps de la requête manquant."}, status=400)
+
     try:
         payload = json.loads(request.body or b"{}")
-    except (TypeError, ValueError):
-        return JsonResponse({"error": "Corps JSON invalide."}, status=400)
+    except json.JSONDecodeError:
+        return JsonResponse({"error": "JSON invalide."}, status=400)
+
     points = payload.get("points") or []
     incidents = payload.get("incidents") or []
     if not isinstance(points, list) or not isinstance(incidents, list):
@@ -2226,83 +2258,73 @@ def sync_offline_data(request):
             {"error": "points et incidents doivent être des tableaux."}, status=400
         )
 
-    valid_types = {t[0] for t in Incident.INCIDENT_TYPES}
-    now = timezone.now()
-    max_batch = 5000  # garde-fou : limite par requête
-
-    gps_objects = []
-    incident_objects = []
-    last_point = None  # (timestamp, latitude, longitude, vitesse) le plus récent du lot
-
-    for item in points[:max_batch]:
+    # Validation basique des données.
+    logs = []
+    for point in points:
+        if not isinstance(point, dict):
+            continue
+        lat = point.get("latitude")
+        lon = point.get("longitude")
         try:
-            latitude = float(item.get("latitude"))
-            longitude = float(item.get("longitude"))
-            speed = float(item.get("speed") or 0.0)
-        except (TypeError, ValueError, AttributeError):
-            continue  # point illisible : on l'ignore, pas de blocage du lot
-        if not (-90.0 <= latitude <= 90.0) or not (-180.0 <= longitude <= 180.0):
+            lat_f = float(lat)
+            lon_f = float(lon)
+        except (TypeError, ValueError):
             continue
-        timestamp = _parse_iso_timestamp(item.get("timestamp")) or now
-        speed = max(0.0, speed)
-        gps_objects.append(
-            GPSLog(
-                bus=bus,
-                latitude=latitude,
-                longitude=longitude,
-                speed_kmh=speed,
-                timestamp=timestamp,
-            )
-        )
-        if last_point is None or timestamp > last_point[0]:
-            last_point = (timestamp, latitude, longitude, speed)
-
-    for item in incidents[:max_batch]:
-        type_incident = str(item.get("type_incident") or "").strip()
-        if type_incident not in valid_types:
+        if not (-90 <= lat_f <= 90 and -180 <= lon_f <= 180):
             continue
-        incident_objects.append(
-            Incident(
-                bus=bus,
-                type_incident=type_incident,
-                description=str(item.get("description") or "").strip(),
-                timestamp=_parse_iso_timestamp(item.get("timestamp")) or now,
-            )
-        )
+        speed = float(point.get("speed", 0.0))
+        if speed < 0:
+            speed = 0.0
+        ts = _parse_iso_timestamp(point.get("timestamp"))
+        logs.append(GPSLog(
+            bus=bus,
+            latitude=lat_f,
+            longitude=lon_f,
+            speed_kmh=speed,
+            timestamp=ts or timezone.now(),
+        ))
 
-    if not gps_objects and not incident_objects:
-        return JsonResponse({"ok": True, "synced_points": 0, "synced_incidents": 0})
+    if logs:
+        GPSLog.objects.bulk_create(logs, ignore_conflicts=True)
 
-    with transaction.atomic():
-        GPSLog.objects.bulk_create(gps_objects)
-        Incident.objects.bulk_create(incident_objects)
-        # Dernier état connu du bus : on n'écrase jamais une position plus récente.
-        if last_point is not None and (
-            bus.last_position_at is None or last_point[0] > bus.last_position_at
-        ):
-            bus.last_latitude = last_point[1]
-            bus.last_longitude = last_point[2]
-            bus.last_position_at = last_point[0]
-            bus.speed_kmh = last_point[3]
-        # Battement de cœur : le bus reste visible en direct sur la carte de l'école.
-        bus.driver_connected = True
-        bus.save(
-            update_fields=[
-                "last_latitude",
-                "last_longitude",
-                "last_position_at",
-                "speed_kmh",
-                "driver_connected",
-            ]
-        )
+    # Bulk create des incidents.
+    incs = []
+    valid_types = {t[0] for t in Incident.INCIDENT_TYPES}
+    for inc in incidents:
+        if not isinstance(inc, dict):
+            continue
+        ts = _parse_iso_timestamp(inc.get("timestamp"))
+        valid_type = inc.get("type_incident", "") in valid_types
+        if not valid_type:
+            continue
+        incs.append(Incident(
+            bus=bus,
+            type_incident=inc.get("type_incident", "Inconnu"),
+            description=inc.get("description", ""),
+            timestamp=ts or timezone.now(),
+        ))
 
-    return JsonResponse(
-        {
-            "ok": True,
-            "synced_points": len(gps_objects),
-            "synced_incidents": len(incident_objects),
-        }
-    )
+    if incs:
+        Incident.objects.bulk_create(incs, ignore_conflicts=True)
+
+    # Mettre à jour le dernier état connu du bus.
+    bus.driver_connected = True
+    latest_log = GPSLog.objects.filter(bus=bus).order_by("-timestamp").first()
+    if latest_log and (bus.last_position_at is None or latest_log.timestamp > bus.last_position_at):
+        bus.last_latitude = latest_log.latitude
+        bus.last_longitude = latest_log.longitude
+        bus.last_position_at = latest_log.timestamp
+        bus.save(update_fields=["driver_connected", "last_latitude", "last_longitude", "last_position_at"])
+    else:
+        # Position plus récente déjà en base : on ne fait que battre le cœur
+        # (le bus reste visible en direct sur la carte de l'école).
+        bus.save(update_fields=["driver_connected"])
+
+    return JsonResponse({
+        "ok": True,
+        "synced_points": len(logs),
+        "synced_incidents": len(incs),
+    })
 
 
 # ---------------------------------------------------------------- Imports Excel
