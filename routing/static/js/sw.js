@@ -19,7 +19,7 @@
 
 'use strict';
 
-var VERSION = 'scolaloop-v1.1.0';
+var VERSION = 'scolaloop-v1.1.1';
 var STATIC_CACHE = VERSION + '-static';
 var PAGE_CACHE = VERSION + '-pages';
 var TILE_CACHE = VERSION + '-tiles';
@@ -40,7 +40,7 @@ var STATIC_ASSETS = [
 var CDN_ASSETS = [
     'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css',
     'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js',
-    'https://cdnjs.cloudflare.com/ajax/libs/leaflet-polylinedecorator/1.6.0/leaflet.polylineDecorator.min.js',
+    'https://cdn.jsdelivr.net/npm/leaflet-polylinedecorator@1.6.0/dist/leaflet.polylineDecorator.min.js',
     'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css',
     'https://cdn.tailwindcss.com',
 ];
