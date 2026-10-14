@@ -2,6 +2,7 @@ import json
 from datetime import timedelta
 from unittest.mock import patch
 
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.utils import timezone
@@ -577,3 +578,25 @@ class ServiceWorkerTests(TestCase):
         self.assertEqual(resp["Service-Worker-Allowed"], "/")
         self.assertIn("application/javascript", resp["Content-Type"])
         self.assertIn(b"tile.openstreetmap.org", resp.content)
+
+
+class SeoAndHomeTests(TestCase):
+    """Page d'accueil et endpoints SEO : le rendu lit settings.SITE_NAME /
+    SITE_URL / etc. Régression couverte : la suppression de ces réglages dans
+    settings.py provoquait un AttributeError → 500 sur l'accueil en production."""
+
+    def test_home_renders_seo_context(self):
+        resp = self.client.get("/")
+        self.assertEqual(resp.status_code, 200)
+        # canonical + og:url injectent settings.SITE_URL dans le rendu.
+        self.assertContains(resp, settings.SITE_URL)
+
+    def test_robots_txt_references_sitemap(self):
+        resp = self.client.get("/robots.txt")
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, f"Sitemap: {settings.SITE_URL}/sitemap.xml")
+
+    def test_sitemap_xml_references_site_url(self):
+        resp = self.client.get("/sitemap.xml")
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, f"<loc>{settings.SITE_URL}/</loc>")
