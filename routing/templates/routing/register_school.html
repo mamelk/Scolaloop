@@ -287,8 +287,10 @@
                 map.setView([lat, lng], 16);
                 marker.setLatLng([lat, lng]);
             }
-            map.invalidateSize();
+            // Afficher AVANT de mesurer : Leaflet mesurerait 0×0 sur un
+            // conteneur masqué et la carte resterait grise (tuiles absentes).
             mapWrap.style.display = 'block';
+            map.invalidateSize();
         }
 
         // Capture GPS du lieu de création de l'école.

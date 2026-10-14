@@ -600,3 +600,20 @@ class SeoAndHomeTests(TestCase):
         resp = self.client.get("/sitemap.xml")
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, f"<loc>{settings.SITE_URL}/</loc>")
+
+
+class RegisterSchoolMapTests(TestCase):
+    """Carte d'inscription d'école : le conteneur masqué (map-wrap) doit être
+    affiché AVANT map.invalidateSize(). Sinon Leaflet mesure le conteneur en
+    0×0, une seule tuile se charge et la carte reste grise jusqu'à un
+    redimensionnement de fenêtre (bug réel corrigé)."""
+
+    def test_register_school_page_renders(self):
+        resp = self.client.get("/register-school/")
+        self.assertEqual(resp.status_code, 200)
+
+    def test_map_unhidden_before_invalidate_size(self):
+        html = self.client.get("/register-school/").content.decode()
+        unhide = html.index("mapWrap.style.display = 'block'")
+        measure = html.index("map.invalidateSize()")
+        self.assertLess(unhide, measure)
