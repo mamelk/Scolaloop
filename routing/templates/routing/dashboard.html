@@ -13,6 +13,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@800&display=swap" rel="stylesheet">
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/leaflet-polylinedecorator@1.6.0/dist/leaflet.polylineDecorator.min.js"></script>
+    <script src="{% static 'js/map_tiles.js' %}"></script>
     <!-- Tailwind CSS (CDN) — preflight désactivé pour préserver les styles existants -->
     <link rel="stylesheet" href="/static/css/output.css"></link>
     <style>
@@ -678,10 +679,9 @@
         // ---------- Carte ----------
         const data = JSON.parse(document.getElementById('map-data').textContent);
         const map = L.map('map').setView([-11.66, 27.47], 13);
-        L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            maxZoom: 19,
-            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-        }).addTo(map);
+        // Fond de carte avec bascule automatique de fournisseur si les tuiles
+        // sont bloquées (403 OSM, panne, 404) — voir map_tiles.js.
+        ScolaloopTiles.addTo(map);
 
         const bounds = [];
 

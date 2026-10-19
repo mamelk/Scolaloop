@@ -241,6 +241,7 @@
     </div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+    <script src="{% static 'js/map_tiles.js' %}"></script>
     <script>
         const latField = document.getElementById('id_latitude');
         const lngField = document.getElementById('id_longitude');
@@ -276,10 +277,7 @@
         function initMap(lat, lng) {
             if (!map) {
                 map = L.map('school-map').setView([lat, lng], 16);
-                L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                    maxZoom: 19,
-                    attribution: '© OpenStreetMap'
-                }).addTo(map);
+                ScolaloopTiles.addTo(map);
                 marker = L.marker([lat, lng], { draggable: true }).addTo(map);
                 marker.on('dragend', () => {
                     const ll = marker.getLatLng();

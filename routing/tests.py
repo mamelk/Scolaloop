@@ -625,11 +625,44 @@ class MapTileSourceTests(TestCase):
         self.assertIn(self.TILE_SNIPPET, source)
         self.assertNotIn("tile.openstreetmap.fr", source)
 
-    def test_service_worker_caches_opaque_tile_responses(self):
-        # Les tuiles <img> sont des réponses « opaque » : sans ce test dans le
-        # service worker, le cache de tuiles restait toujours vide.
+    def test_maps_use_resilient_tile_helper(self):
+        # Chaque carte doit passer par map_tiles.js : c'est lui qui bascule de
+        # fournisseur quand les tuiles sont bloquées (403 OSM en production).
+        for name in [
+            "dashboard.html",
+            "parent.html",
+            "driver.html",
+            "replay.html",
+            "setup_home.html",
+            "register_school.html",
+        ]:
+            with self.subTest(template=name):
+                path = Path(settings.BASE_DIR) / "routing" / "templates" / "routing" / name
+                source = path.read_text(encoding="utf-8")
+                self.assertIn("js/map_tiles.js", source)
+                self.assertNotIn("L.tileLayer(", source)
+
+    def test_driver_map_script_uses_resilient_tile_helper(self):
+        path = Path(settings.BASE_DIR) / "routing" / "static" / "js" / "driver_map.js"
+        source = path.read_text(encoding="utf-8")
+        self.assertIn("ScolaloopTiles.addTo", source)
+
+    def test_tile_helper_lists_fallback_providers(self):
+        path = Path(settings.BASE_DIR) / "routing" / "static" / "js" / "map_tiles.js"
+        source = path.read_text(encoding="utf-8")
+        # Le chemin « /osmfr/ » est obligatoire : sans lui, OSM France renvoie 404.
+        self.assertIn("tile.openstreetmap.fr/osmfr/{z}/{x}/{y}.png", source)
+        self.assertIn("server.arcgisonline.com", source)
+        # CARTO sert désormais une image « API KEY REQUIRED » sans clé.
+        self.assertNotIn("basemaps.cartocdn.com", source)
+
+    def test_service_worker_fetches_tiles_in_cors_mode(self):
+        # En mode « no-cors », une réponse 403 est opaque (status 0) : elle
+        # paraîtrait valide et serait mise en cache, figeant la carte sur les
+        # tuiles « Access blocked ». Le service worker force donc le CORS.
         resp = self.client.get("/sw.js")
-        self.assertIn(b"response.type === 'opaque'", resp.content)
+        self.assertIn(b"mode: 'cors'", resp.content)
+        self.assertNotIn(b"response.type === 'opaque'", resp.content)
 
 
 class SeoAndHomeTests(TestCase):

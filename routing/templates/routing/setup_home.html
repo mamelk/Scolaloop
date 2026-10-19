@@ -137,6 +137,7 @@
     </div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+    <script src="{% static 'js/map_tiles.js' %}"></script>
     <script>
         // Centre de la carte : école de l'élève si connue, sinon Lubumbashi (défaut démo).
         // stringformat:"f" force le point décimal (la locale fr-fr utilise la virgule,
@@ -159,10 +160,7 @@
         });
 
         const map = L.map('home-map').setView([schoolLat, schoolLng], 15);
-        L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            maxZoom: 19,
-            attribution: '© OpenStreetMap'
-        }).addTo(map);
+        ScolaloopTiles.addTo(map);
 
         let marker = null;
 

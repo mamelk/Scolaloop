@@ -19,7 +19,7 @@
 
 'use strict';
 
-var VERSION = 'scolaloop-v1.1.3';
+var VERSION = 'scolaloop-v1.1.6';
 var STATIC_CACHE = VERSION + '-static';
 var PAGE_CACHE = VERSION + '-pages';
 var TILE_CACHE = VERSION + '-tiles';
@@ -34,6 +34,7 @@ var STATIC_ASSETS = [
     '/static/offline.html',
     '/static/js/offline_sync.js',
     '/static/js/driver_tracking.js',
+    '/static/js/map_tiles.js',
 ];
 
 /* Bibliothèques CDN nécessaires au rendu des cartes hors-ligne. */
@@ -110,10 +111,13 @@ function isStaticAsset(url) {
         || host === 'fonts.gstatic.com';
 }
 
-/* Tuiles raster des fournisseurs de fond de carte (uniquement du .png). */
+/* Tuiles raster des fournisseurs de fond de carte (voir map_tiles.js). */
 function isTileRequest(url) {
-    if (url.pathname.slice(-4) !== '.png') return false;
     var host = url.hostname;
+    if (host === 'server.arcgisonline.com') {
+        return url.pathname.indexOf('/MapServer/tile/') !== -1;
+    }
+    if (url.pathname.slice(-4) !== '.png') return false;
     return host === 'tile.openstreetmap.org'
         || /(^|\.)tile\.openstreetmap\.(org|fr)$/.test(host)
         || host.indexOf('tile.') === 0
@@ -166,14 +170,13 @@ function tileStrategy(request) {
     return caches.open(TILE_CACHE).then(function (cache) {
         return cache.match(request).then(function (cached) {
             if (cached) return cached;
-            return fetch(request)
+            // Requête CORS : le statut redevient lisible. Indispensable pour ne
+            // JAMAIS mettre en cache un 403 « Access blocked » (opaque, il
+            // paraîtrait valide et figerait la carte indéfiniment).
+            var corsRequest = new Request(request, { mode: 'cors', credentials: 'omit' });
+            return fetch(corsRequest)
                 .then(function (response) {
-                    // Les tuiles chargées par <img> sont des réponses « opaque »
-                    // (type opaque, status 0) : response.ok vaut false, mais le
-                    // corps est bel et bien une image cachable. Sans ce test,
-                    // le cache de tuiles restait toujours vide.
-                    var storable = response && (response.ok || response.type === 'opaque');
-                    if (storable) {
+                    if (response && response.ok) {
                         cache.put(request, response.clone());
                         trimTileCache(cache);
                     }

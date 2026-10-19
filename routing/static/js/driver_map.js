@@ -140,10 +140,16 @@
         // Zoom par défaut élevé : les noms de rues/avenues sont immédiatement
         // lisibles ; l'auto-centrage du suivi GPS conserve ce niveau de zoom.
         map = L.map('map').setView(start, DEFAULT_ZOOM);
-        L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            maxZoom: 19,
-            attribution: '&copy; OpenStreetMap'
-        }).addTo(map);
+        // Fond de carte avec bascule automatique de fournisseur (map_tiles.js)
+        // si les tuiles sont bloquées : la carte n'est jamais laissée grise.
+        if (window.ScolaloopTiles) {
+            window.ScolaloopTiles.addTo(map);
+        } else {
+            L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                maxZoom: 19,
+                attribution: '&copy; OpenStreetMap'
+            }).addTo(map);
+        }
 
         // Icône de bus surdimensionnée (64 px) : très visible au centre de
         // l'écran, même sur des avenues étroites.

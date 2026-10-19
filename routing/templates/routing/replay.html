@@ -9,6 +9,7 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="{% static 'js/map_tiles.js' %}"></script>
     <style>
         :root { --indigo: #4F46E5; --blue: #2563EB; --border: #e2e8f0; --muted: #64748b; --slate: #0f172a; }
         * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -132,9 +133,7 @@
 
         // Centre sur la première position connue.
         const map = L.map('map').setView([points[0].lat, points[0].lng], 15);
-        L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            maxZoom: 19, attribution: '© OpenStreetMap'
-        }).addTo(map);
+        ScolaloopTiles.addTo(map);
 
         let marker = null;
         let trail = null;
