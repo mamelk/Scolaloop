@@ -4,10 +4,27 @@ from unittest.mock import patch
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.contrib.auth.models import Group
 from django.test import TestCase
 from django.utils import timezone
 
-from .models import Bus, BusStop, GPSLog, Incident, Route, RouteStop, School, Student
+from .models import (
+    Bus,
+    BusStop,
+    CommissionValidation,
+    GPSLog,
+    Incident,
+    PhysicalDemo,
+    PilotContract,
+    ProspectionDay,
+    Route,
+    RouteStop,
+    SalesRep,
+    SalesSettings,
+    School,
+    Student,
+    WeeklyReport,
+)
 from .services import auto_assign_student_to_bus, estimate_bus_delay
 
 User = get_user_model()
@@ -617,3 +634,413 @@ class RegisterSchoolMapTests(TestCase):
         unhide = html.index("mapWrap.style.display = 'block'")
         measure = html.index("map.invalidateSize()")
         self.assertLess(unhide, measure)
+
+
+class SalesTrackingTests(TestCase):
+    """Suivi commercial : accès par rôle, CRUD des rapports, calcul des
+    commissions, API JSON et exports."""
+
+    @classmethod
+    def setUpTestData(cls):
+        User = get_user_model()
+        cls.admin = User.objects.create_superuser("root", "root@example.com", "pw")
+        cls.commercial_user = User.objects.create_user("stephen", password="pw")
+        cls.intruder = User.objects.create_user("intruder", password="pw")
+        cls.rep = SalesRep.objects.create(
+            full_name="Stephen MBUYU", user=cls.commercial_user
+        )
+        cls.rep2 = SalesRep.objects.create(full_name="Crispin TSHONDO")
+        cls.s = SalesSettings.get_solo()
+        # Lundi de la semaine courante (référence pour tous les tests).
+        cls.monday = timezone.localdate() - timedelta(
+            days=timezone.localdate().weekday()
+        )
+
+    def _login(self, user):
+        self.client.force_login(user)
+
+    # ---------------------------------------------------------------- Accès
+
+    def test_dashboard_requires_role(self):
+        resp = self.client.get("/admin/sales-tracking/")
+        self.assertEqual(resp.status_code, 302)  # anonyme → login
+        self._login(self.intruder)
+        resp = self.client.get("/admin/sales-tracking/")
+        self.assertEqual(resp.status_code, 302)  # sans rôle → refus
+
+    def test_dashboard_allows_admin_group_and_superuser(self):
+        User = get_user_model()
+        group_user = User.objects.create_user("admin1", password="pw")
+        group_user.groups.add(Group.objects.get_or_create(name="ADMIN")[0])
+        self._login(group_user)
+        self.assertEqual(self.client.get("/admin/sales-tracking/").status_code, 200)
+        self._login(self.admin)
+        self.assertEqual(self.client.get("/admin/sales-tracking/").status_code, 200)
+
+    def test_commercial_can_open_own_report_form(self):
+        self._login(self.commercial_user)
+        self.assertEqual(self.client.get("/admin/sales-tracking/rapport/nouveau/").status_code, 200)
+
+    # ------------------------------------------------------------- Formulaire
+
+    def _post_payload(self, **overrides):
+        """Payload POST minimal du formulaire (6 jours + 1 démo + 1 contrat)."""
+        data = {
+            "sales_rep": str(self.rep.pk),
+            "week_start": self.monday.isoformat(),
+            "went_well": "Bonne réactivité des directeurs.",
+            "difficulties": "Peu de temps d'écoute en fin de journée.",
+            "needs_next_week": "Brochures A4 supplémentaires.",
+            "prospection-TOTAL_FORMS": "6",
+            "prospection-INITIAL_FORMS": "0",
+            "prospection-MIN_NUM_FORMS": "0",
+            "prospection-MAX_NUM_FORMS": "1000",
+            "demos-TOTAL_FORMS": "2",
+            "demos-INITIAL_FORMS": "0",
+            "demos-MIN_NUM_FORMS": "0",
+            "demos-MAX_NUM_FORMS": "1000",
+            "contracts-TOTAL_FORMS": "2",
+            "contracts-INITIAL_FORMS": "0",
+            "contracts-MIN_NUM_FORMS": "0",
+            "contracts-MAX_NUM_FORMS": "1000",
+            "action": "save",
+        }
+        for i in range(6):
+            # Jour 0 : 5 écoles, 2 réponses, 1 RDV ; les autres à zéro.
+            data[f"prospection-{i}-ecoles_contactees"] = "5" if i == 0 else ""
+            data[f"prospection-{i}-reponses_positives"] = "2" if i == 0 else ""
+            data[f"prospection-{i}-rdv_fixes"] = "1" if i == 0 else ""
+        data.update({
+            "demos-0-date": self.monday.isoformat(),
+            "demos-0-school_name": "Ecole A",
+            "demos-0-director_name": "M. Kalala",
+            "demos-0-duration_minutes": "45",
+            "demos-0-interest_level": "8",
+            "demos-0-next_action": "Relance vendredi",
+            "contracts-0-date": (self.monday + timedelta(days=3)).isoformat(),
+            "contracts-0-school_name": "Ecole A",
+            "contracts-0-bus_count": "3",
+            "contracts-0-signed": "on",
+        })
+        data.update(overrides)
+        return data
+
+    def test_report_creation_saves_all_sections(self):
+        self._login(self.admin)
+        resp = self.client.post(
+            "/admin/sales-tracking/rapport/nouveau/", self._post_payload()
+        )
+        report = WeeklyReport.objects.get()
+        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(report.sales_rep, self.rep)
+        self.assertEqual(report.status, WeeklyReport.Status.DRAFT)
+        # Grille : 6 lignes J→S, la première porte les valeurs.
+        days = list(report.prospection_days.order_by("day"))
+        self.assertEqual(len(days), 6)
+        self.assertEqual(days[0].day, self.monday)
+        self.assertEqual(report.total_contacted, 5)
+        self.assertEqual(report.total_appointments, 1)
+        self.assertEqual(report.demos_count, 1)
+        self.assertEqual(report.signatures_count, 1)
+        self.assertEqual(report.signed_bus_count, 3)
+        # Montant estimé : 3 bus × 30 $.
+        self.assertEqual(report.estimated_amount, self.s.pilot_bus_amount * 3)
+        self.assertEqual(report.went_well, "Bonne réactivité des directeurs.")
+
+    def test_duplicate_week_rejected_and_nothing_saved(self):
+        self._login(self.admin)
+        self.client.post("/admin/sales-tracking/rapport/nouveau/", self._post_payload())
+        resp = self.client.post(
+            "/admin/sales-tracking/rapport/nouveau/",
+            self._post_payload(),
+        )
+        self.assertEqual(WeeklyReport.objects.count(), 1)  # pas de doublon
+        self.assertContains(resp, "Un rapport existe déjà", status_code=200)
+
+    def test_negative_value_rejected(self):
+        self._login(self.admin)
+        resp = self.client.post(
+            "/admin/sales-tracking/rapport/nouveau/",
+            self._post_payload(**{"prospection-0-ecoles_contactees": "-3"}),
+        )
+        self.assertEqual(resp.status_code, 200)  # réaffiché avec erreurs
+        self.assertEqual(WeeklyReport.objects.count(), 0)
+        # Message par défaut de MinValueValidator sur PositiveIntegerField.
+        self.assertContains(resp, "supérieure ou égale à 0")
+
+    def test_empty_demo_row_not_created(self):
+        self._login(self.admin)
+        payload = self._post_payload()
+        # La 2e ligne de démo (extra) reste entièrement vide.
+        payload.update({
+            "demos-1-date": "", "demos-1-school_name": "",
+            "demos-1-director_name": "", "demos-1-duration_minutes": "",
+            "demos-1-interest_level": "", "demos-1-next_action": "",
+        })
+        self.client.post("/admin/sales-tracking/rapport/nouveau/", payload)
+        self.assertEqual(PhysicalDemo.objects.count(), 1)
+
+    def test_interest_level_out_of_range_rejected(self):
+        self._login(self.admin)
+        resp = self.client.post(
+            "/admin/sales-tracking/rapport/nouveau/",
+            self._post_payload(**{"demos-0-interest_level": "15"}),
+        )
+        self.assertEqual(PhysicalDemo.objects.count(), 0)
+        self.assertContains(resp, "10")
+
+    def test_commercial_auto_detected_and_scoped(self):
+        self._login(self.commercial_user)
+        # Création : le commercial est imposé même si un autre est envoyé.
+        self.client.post(
+            "/admin/sales-tracking/rapport/nouveau/",
+            self._post_payload(**{"sales_rep": str(self.rep2.pk)}),
+        )
+        report = WeeklyReport.objects.get()
+        self.assertEqual(report.sales_rep, self.rep)
+        # Lecture/modification d'un rapport d'un autre commercial : refusé.
+        self._login(self.intruder)
+        resp = self.client.get(f"/admin/sales-tracking/rapport/{report.pk}/")
+        self.assertEqual(resp.status_code, 302)
+        self._login(self.commercial_user)
+        resp = self.client.get(f"/admin/sales-tracking/rapport/{report.pk}/")
+        self.assertEqual(resp.status_code, 200)
+
+    def test_week_change_rebuilds_grid(self):
+        self._login(self.admin)
+        self.client.post("/admin/sales-tracking/rapport/nouveau/", self._post_payload())
+        report = WeeklyReport.objects.get()
+        payload = self._post_payload(**{"week_start": (self.monday + timedelta(days=7)).isoformat()})
+        # Édition : le formset devient initial (lignes existantes + leurs ids,
+        # exactement comme le template rend les champs cachés).
+        day_ids = list(report.prospection_days.order_by("day").values_list("id", flat=True))
+        self.assertEqual(len(day_ids), 6)
+        payload["prospection-INITIAL_FORMS"] = "6"
+        for i, pk in enumerate(day_ids):
+            payload[f"prospection-{i}-id"] = str(pk)
+            payload[f"prospection-{i}-ecoles_contactees"] = ""
+        payload["demos-INITIAL_FORMS"] = "1"
+        payload["demos-0-id"] = str(report.demos.get().pk)
+        payload["contracts-INITIAL_FORMS"] = "1"
+        payload["contracts-0-id"] = str(report.contracts.get().pk)
+        resp = self.client.post(f"/admin/sales-tracking/rapport/{report.pk}/", payload)
+        self.assertEqual(resp.status_code, 302)
+        report.refresh_from_db()
+        self.assertEqual(report.week_start, self.monday + timedelta(days=7))
+        days = list(report.prospection_days.order_by("day"))
+        self.assertEqual(len(days), 6)  # grille reconstruite, pas de doublon
+        self.assertEqual(days[0].day, self.monday + timedelta(days=7))
+        self.assertEqual(report.demos.count(), 1)  # mis à jour, pas dupliqué
+        self.assertEqual(report.contracts.count(), 1)
+
+    # ------------------------------------------------------ Soumission / commission
+
+    def test_submit_and_commission_calculation(self):
+        self._login(self.admin)
+        self.client.post("/admin/sales-tracking/rapport/nouveau/", self._post_payload())
+        report = WeeklyReport.objects.get()
+        # Soumission.
+        resp = self.client.post(f"/admin/sales-tracking/rapport/{report.pk}/soumettre/")
+        report.refresh_from_db()
+        self.assertEqual(report.status, WeeklyReport.Status.SUBMITTED)
+        self.assertIsNotNone(report.submitted_at)
+
+        # Validation : fixe 30/4=7.50 + 5×1 signature + 2×3 bus = 20.50 $.
+        resp = self.client.post(
+            f"/admin/sales-tracking/rapport/{report.pk}/valider/",
+            {
+                "received_at": timezone.localdate().isoformat(),
+                "objectives_met": "on",
+                "payment_status": "PENDING",
+                "action": "validate",
+            },
+        )
+        self.assertEqual(resp.status_code, 302)
+        report.refresh_from_db()
+        self.assertEqual(report.status, WeeklyReport.Status.VALIDATED)
+        commission = CommissionValidation.objects.get(report=report)
+        self.assertEqual(commission.signatures_count, 1)
+        self.assertEqual(commission.active_buses_count, 3)
+        self.assertEqual(commission.fixed_amount, self.s.monthly_fixed_amount / 4)
+        self.assertEqual(
+            commission.total_amount,
+            self.s.monthly_fixed_amount / 4
+            + self.s.commission_per_signature
+            + self.s.commission_per_active_bus * 3,
+        )
+
+    def test_commission_cumulates_buses_across_weeks(self):
+        """La commission bus récurrente cumule les bus signés des semaines antérieures."""
+        r1 = WeeklyReport.objects.create(sales_rep=self.rep, week_start=self.monday - timedelta(days=7))
+        PilotContract.objects.create(
+            report=r1, date=r1.week_start, school_name="Ecole X", bus_count=2, signed=True
+        )
+        r2 = WeeklyReport.objects.create(sales_rep=self.rep, week_start=self.monday)
+        PilotContract.objects.create(
+            report=r2, date=r2.week_start, school_name="Ecole Y", bus_count=4, signed=True
+        )
+        # Cumul jusqu'à r2 : 2 + 4 = 6 bus.
+        self.assertEqual(r2.active_buses_cumulated(), 6)
+        bd = r2.commission_breakdown()
+        self.assertEqual(bd["active_buses"], 6)
+        self.assertEqual(bd["bus_amount"], self.s.commission_per_active_bus * 6)
+
+    def test_commission_view_denied_to_commercial(self):
+        self._login(self.admin)
+        self.client.post("/admin/sales-tracking/rapport/nouveau/", self._post_payload())
+        report = WeeklyReport.objects.get()
+        self._login(self.commercial_user)
+        resp = self.client.get(f"/admin/sales-tracking/rapport/{report.pk}/valider/")
+        self.assertEqual(resp.status_code, 302)
+        self.assertFalse(CommissionValidation.objects.exists())
+
+    # ------------------------------------------------------------------ API JSON
+
+    def _api_payload(self):
+        return {
+            "sales_rep": self.rep.pk,
+            "week_start": self.monday.isoformat(),
+            "prospection": [
+                {"ecoles_contactees": 4, "reponses_positives": 1, "rdv_fixes": 1},
+            ],
+            "demos": [
+                {
+                    "date": self.monday.isoformat(),
+                    "school_name": "Ecole API",
+                    "director_name": "M. Test",
+                    "duration_minutes": 30,
+                    "interest_level": 7,
+                    "next_action": "Relancer",
+                }
+            ],
+            "contracts": [
+                {
+                    "date": self.monday.isoformat(),
+                    "school_name": "Ecole API",
+                    "bus_count": 2,
+                    "signed": True,
+                }
+            ],
+            "went_well": "OK",
+        }
+
+    def test_api_create_report(self):
+        self._login(self.admin)
+        resp = self.client.post(
+            "/api/sales/reports/", json.dumps(self._api_payload()),
+            content_type="application/json",
+        )
+        self.assertEqual(resp.status_code, 201, resp.content)
+        body = resp.json()
+        self.assertTrue(body["ok"])
+        self.assertEqual(body["report"]["totals"]["calls"], 4)
+        self.assertEqual(body["report"]["totals"]["signatures"], 1)
+        self.assertEqual(len(body["report"]["prospection"]), 1)
+
+    def test_api_update_replaces_provided_sections_only(self):
+        self._login(self.admin)
+        self.client.post(
+            "/api/sales/reports/", json.dumps(self._api_payload()),
+            content_type="application/json",
+        )
+        report = WeeklyReport.objects.get()
+        # PATCH : ne fournit QUE les démos → les autres sections sont intactes.
+        patch_data = {
+            "demos": [
+                {
+                    "date": self.monday.isoformat(),
+                    "school_name": "Ecole REMPLACEE",
+                    "director_name": "",
+                    "duration_minutes": 20,
+                    "interest_level": 5,
+                    "next_action": "",
+                }
+            ],
+        }
+        resp = self.client.patch(
+            f"/api/sales/reports/{report.pk}/", json.dumps(patch_data),
+            content_type="application/json",
+        )
+        self.assertEqual(resp.status_code, 200, resp.content)
+        self.assertEqual(PhysicalDemo.objects.count(), 1)
+        self.assertEqual(PhysicalDemo.objects.get().school_name, "Ecole REMPLACEE")
+        # Contrats et commentaires non touchés.
+        self.assertEqual(PilotContract.objects.count(), 1)
+        self.assertEqual(WeeklyReport.objects.get().went_well, "OK")
+
+    def test_api_validate_commission(self):
+        self._login(self.admin)
+        self.client.post(
+            "/api/sales/reports/", json.dumps(self._api_payload()),
+            content_type="application/json",
+        )
+        report = WeeklyReport.objects.get()
+        resp = self.client.post(
+            f"/api/sales/reports/{report.pk}/validate/",
+            json.dumps({
+                "received_at": timezone.localdate().isoformat(),
+                "objectives_met": True,
+                "payment_status": "APPROVED",
+            }),
+            content_type="application/json",
+        )
+        self.assertEqual(resp.status_code, 200, resp.content)
+        commission = CommissionValidation.objects.get()
+        self.assertEqual(commission.payment_status, "APPROVED")
+        # 30/4 + 5×1 + 2×2 = 16.50 $
+        self.assertEqual(
+            commission.total_amount,
+            self.s.monthly_fixed_amount / 4 + self.s.commission_per_signature + 4,
+        )
+        report.refresh_from_db()
+        self.assertEqual(report.status, WeeklyReport.Status.VALIDATED)
+
+    def test_api_kpis_requires_role(self):
+        self._login(self.commercial_user)
+        resp = self.client.get("/api/sales/kpis/")
+        self.assertEqual(resp.status_code, 403)
+        self._login(self.admin)
+        resp = self.client.get("/api/sales/kpis/")
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn("kpis", resp.json())
+
+    def test_api_normalizes_negative_calls(self):
+        self._login(self.admin)
+        payload = self._api_payload()
+        payload["prospection"][0]["ecoles_contactees"] = -5
+        resp = self.client.post(
+            "/api/sales/reports/", json.dumps(payload), content_type="application/json"
+        )
+        # La grille prospection normalise à 0 (jamais de négatif en base).
+        self.assertEqual(resp.status_code, 201, resp.content)
+        self.assertEqual(ProspectionDay.objects.get().ecoles_contactees, 0)
+
+    def test_api_delete_draft_only_for_commercial(self):
+        self._login(self.admin)
+        self.client.post(
+            "/api/sales/reports/", json.dumps(self._api_payload()),
+            content_type="application/json",
+        )
+        report = WeeklyReport.objects.get()
+        self._login(self.commercial_user)
+        # Brouillon : suppression OK pour l'auteur.
+        resp = self.client.delete(f"/api/sales/reports/{report.pk}/")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(WeeklyReport.objects.count(), 0)
+
+    # ------------------------------------------------------------------ Exports
+
+    def test_exports_render(self):
+        self._login(self.admin)
+        self.client.post("/admin/sales-tracking/rapport/nouveau/", self._post_payload())
+        report = WeeklyReport.objects.get()
+        xlsx = self.client.get(f"/admin/sales-tracking/rapport/{report.pk}/export.xlsx")
+        self.assertEqual(xlsx.status_code, 200)
+        self.assertIn("spreadsheetml", xlsx["Content-Type"])
+        pdf = self.client.get(f"/admin/sales-tracking/rapport/{report.pk}/export.pdf")
+        self.assertEqual(pdf.status_code, 200)
+        self.assertEqual(pdf["Content-Type"], "application/pdf")
+        csv = self.client.get("/admin/sales-tracking/export.csv")
+        self.assertEqual(csv.status_code, 200)
+        self.assertIn("text/csv", csv["Content-Type"])
+        self.assertIn("Commercial", csv.content.decode("utf-8-sig"))

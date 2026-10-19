@@ -1,0 +1,72 @@
+{% extends "routing/_sales_shell.html" %}
+
+{% block title %}Validation &amp; Paie des commissions{% endblock %}
+
+{% block content %}
+<div class="panel">
+    <div class="panel-title"><i class="fa-solid fa-inbox" style="color:var(--accent);"></i> Rapports soumis — en attente de validation ({{ pending|length }})</div>
+    {% if pending %}
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr><th>Commercial</th><th>Semaine</th><th>Soumis le</th><th>Actions</th></tr>
+            </thead>
+            <tbody>
+                {% for r in pending %}
+                <tr>
+                    <td><strong>{{ r.sales_rep.full_name }}</strong></td>
+                    <td>Du {{ r.week_start|date:'d/m/Y' }} au {{ r.week_end|date:'d/m/Y' }}</td>
+                    <td>{{ r.submitted_at|date:'d/m/Y H:i'|default:'—' }}</td>
+                    <td>
+                        <div class="fs-actions">
+                            <a class="btn btn-sm btn-green" href="{% url 'sales:commission_validate' r.pk %}">
+                                <i class="fa-solid fa-check-double"></i> Valider &amp; payer
+                            </a>
+                            <a class="btn btn-sm btn-gray" href="{% url 'sales:report_edit' r.pk %}">
+                                <i class="fa-solid fa-eye"></i> Voir
+                            </a>
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div class="empty"><i class="fa-solid fa-circle-check"></i> Aucun rapport en attente de validation. 🎉</div>
+    {% endif %}
+</div>
+
+<div class="panel">
+    <div class="panel-title"><i class="fa-solid fa-sack-dollar" style="color:var(--accent);"></i> Fiches de commission générées ({{ validated|length }})</div>
+    {% if validated %}
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr><th>Commercial</th><th>Semaine</th><th>Fixe</th><th>Signatures</th><th>Bus actifs</th><th>Total</th><th>Paiement</th><th></th></tr>
+            </thead>
+            <tbody>
+                {% for r in validated %}
+                <tr>
+                    <td>{{ r.sales_rep.full_name }}</td>
+                    <td>Semaine du {{ r.week_start|date:'d/m/Y' }}</td>
+                    <td>{{ r.commission.fixed_amount }} $</td>
+                    <td>{{ r.commission.signature_amount }} $ ({{ r.commission.signatures_count }})</td>
+                    <td>{{ r.commission.bus_amount }} $ ({{ r.commission.active_buses_count }})</td>
+                    <td><strong style="color:var(--accent);">{{ r.commission.total_amount }} $</strong></td>
+                    <td>
+                        {% if r.commission.payment_status == 'PAID' %}<span class="badge badge-ok"><i class="fa-solid fa-circle-check"></i> Payé</span>
+                        {% elif r.commission.payment_status == 'APPROVED' %}<span class="badge badge-pending"><i class="fa-solid fa-thumbs-up"></i> Approuvé</span>
+                        {% else %}<span class="badge badge-draft"><i class="fa-solid fa-clock"></i> En attente</span>{% endif %}
+                    </td>
+                    <td><a class="btn btn-sm btn-gray" href="{% url 'sales:commission_validate' r.pk %}"><i class="fa-solid fa-pen"></i></a></td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div class="empty"><i class="fa-solid fa-file-circle-xmark"></i> Aucune fiche de commission générée.</div>
+    {% endif %}
+</div>
+{% endblock %}

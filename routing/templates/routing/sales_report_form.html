@@ -1,0 +1,361 @@
+{% extends "routing/_sales_shell.html" %}
+
+{% block title %}Rapport hebdomadaire — Saisie{% endblock %}
+
+{% block content %}
+<form method="post" id="report-form" novalidate>
+    {% csrf_token %}
+    {% if report_form.non_field_errors %}
+    <div class="panel" style="border-color:var(--danger);">
+        <div class="panel-body">
+            {% for e in report_form.non_field_errors %}<ul class="errorlist"><li>{{ e }}</li></ul>{% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Section 0 — En-tête -->
+    <div class="panel">
+        <div class="panel-title">
+            <span><i class="fa-solid fa-heading" style="color:var(--accent);"></i> En-tête du rapport</span>
+            {% if report.pk %}
+            <span class="badge {% if report.status == 'VALIDATED' %}badge-ok{% elif report.status == 'SUBMITTED' %}badge-pending{% else %}badge-draft{% endif %}">
+                {{ report.get_status_display }}
+            </span>
+            {% else %}
+            <span class="badge badge-draft">Nouveau rapport</span>
+            {% endif %}
+        </div>
+        <div class="panel-body">
+            <div class="form-grid">
+                <div class="form-field">
+                    <label for="id_sales_rep">Commercial *</label>
+                    {{ report_form.sales_rep }}
+                    {% if is_admin %}<div class="helptext">Mode admin : choisissez le commercial concerné.</div>
+                    {% else %}<div class="helptext">Auto-détecté depuis votre compte.</div>{% endif %}
+                    {% for e in report_form.sales_rep.errors %}<ul class="errorlist"><li>{{ e }}</li></ul>{% endfor %}
+                </div>
+                <div class="form-field">
+                    <label for="id_week_start">Semaine — Du [Date] au [Date] *</label>
+                    {{ report_form.week_start }}
+                    <div class="helptext" id="week-range">Lundi → Samedi</div>
+                    {% for e in report_form.week_start.errors %}<ul class="errorlist"><li>{{ e }}</li></ul>{% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Section 1 — Prospection (grille Lundi→Samedi) -->
+    <div class="panel">
+        <div class="panel-title"><i class="fa-solid fa-phone" style="color:var(--accent);"></i> 1. Prospection (appels + WhatsApp)</div>
+        <div class="panel-body table-wrap">
+            {{ prospection_fs.management_form }}
+            {% for e in prospection_fs.non_form_errors %}<ul class="errorlist"><li>{{ e }}</li></ul>{% endfor %}
+            <table class="prosp-grid">
+                <thead>
+                    <tr>
+                        <th>Jour</th>
+                        <th>Écoles contactées</th>
+                        <th>Réponses positives</th>
+                        <th>Rendez-vous fixés</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for form, day_label in prosp_rows %}
+                    <tr {% if form.errors %}style="background:#fef2f2;"{% endif %}>
+                        {% for hidden in form.hidden_fields %}{{ hidden }}{% endfor %}
+                        <td>{{ day_label }}</td>
+                        {% for field in form.visible_fields %}
+                        <td>{{ field }}{% for e in field.errors %}<ul class="errorlist"><li>{{ e }}</li></ul>{% endfor %}</td>
+                        {% endfor %}
+                    </tr>
+                    {% endfor %}
+                    <tr class="prosp-total">
+                        <td>TOTAL</td>
+                        <td id="tot-contacted">0</td>
+                        <td id="tot-replies">0</td>
+                        <td id="tot-rdv">0</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Section 2 — Démonstrations physiques -->
+    <div class="panel">
+        <div class="panel-title">
+            <span><i class="fa-solid fa-person-chalkboard" style="color:var(--accent);"></i> 2. Démonstrations physiques</span>
+            <button type="button" class="btn btn-sm btn-green" data-add-row="demos">
+                <i class="fa-solid fa-plus"></i> Ajouter une démo
+            </button>
+        </div>
+        <div class="panel-body">
+            {{ demos_fs.management_form }}
+            {% for e in demos_fs.non_form_errors %}<ul class="errorlist"><li>{{ e }}</li></ul>{% endfor %}
+            <div id="rows-demos">
+                {% for form in demos_fs.forms %}
+                <div class="fs-row {% if not form.instance.pk and not form.is_bound %}hidden{% endif %}" data-row="demos">
+                    {% if form.instance.pk %}{{ form.id }}{% endif %}
+                    {% for hidden in form.hidden_fields %}{{ hidden }}{% endfor %}
+                    <div><label>Date *</label>{{ form.date }}</div>
+                    <div><label>École *</label>{{ form.school_name }}</div>
+                    <div><label>Directeur rencontré</label>{{ form.director_name }}</div>
+                    <div><label>Durée (min)</label>{{ form.duration_minutes }}</div>
+                    <div><label>Intérêt (1-10) *</label>{{ form.interest_level }}</div>
+                    <div><label>Prochaine action</label>{{ form.next_action }}</div>
+                    <div class="fs-actions">
+                        {% if form.instance.pk %}{{ form.DELETE }}<label for="{{ form.DELETE.id_for_label }}" title="Supprimer" style="cursor:pointer; color:var(--danger);"><i class="fa-solid fa-trash"></i></label>{% endif %}
+                        <button type="button" class="btn btn-sm btn-danger" data-remove-row title="Retirer la ligne"><i class="fa-solid fa-xmark"></i></button>
+                    </div>
+                    {% for field in form %}{% for e in field.errors %}<ul class="errorlist"><li>{{ field.label }} : {{ e }}</li></ul>{% endfor %}{% endfor %}
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Section 3 — Signatures (contrats pilotes) -->
+    <div class="panel">
+        <div class="panel-title">
+            <span><i class="fa-solid fa-file-signature" style="color:var(--accent);"></i> 3. Signatures (contrats pilotes)</span>
+            <button type="button" class="btn btn-sm btn-green" data-add-row="contracts">
+                <i class="fa-solid fa-plus"></i> Ajouter un contrat
+            </button>
+        </div>
+        <div class="panel-body">
+            {{ contracts_fs.management_form }}
+            {% for e in contracts_fs.non_form_errors %}<ul class="errorlist"><li>{{ e }}</li></ul>{% endfor %}
+            <div id="rows-contracts">
+                {% for form in contracts_fs.forms %}
+                <div class="fs-row {% if not form.instance.pk and not form.is_bound %}hidden{% endif %}" data-row="contracts" data-amount="{{ settings.pilot_bus_amount }}">
+                    {% if form.instance.pk %}{{ form.id }}{% endif %}
+                    {% for hidden in form.hidden_fields %}{{ hidden }}{% endfor %}
+                    <div><label>Date *</label>{{ form.date }}</div>
+                    <div><label>École *</label>{{ form.school_name }}</div>
+                    <div><label>Nombre de bus *</label>{{ form.bus_count }}</div>
+                    <div><label>Statut signature</label>{{ form.signed }}</div>
+                    <div><label>Montant estimé</label><div class="row-amount" style="padding:0.45rem 0; font-weight:700;">0 $</div></div>
+                    <div class="fs-actions">
+                        {% if form.instance.pk %}{{ form.DELETE }}<label for="{{ form.DELETE.id_for_label }}" title="Supprimer" style="cursor:pointer; color:var(--danger);"><i class="fa-solid fa-trash"></i></label>{% endif %}
+                        <button type="button" class="btn btn-sm btn-danger" data-remove-row title="Retirer la ligne"><i class="fa-solid fa-xmark"></i></button>
+                    </div>
+                    {% for field in form %}{% for e in field.errors %}<ul class="errorlist"><li>{{ field.label }} : {{ e }}</li></ul>{% endfor %}{% endfor %}
+                </div>
+                {% endfor %}
+            </div>
+            <div class="calcline" style="margin-top:0.6rem;">
+                <span>Total montant estimé des contrats signés</span>
+                <span id="contracts-total" style="font-weight:800; color:var(--accent);">0 $</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Section 4 — Synthèse des objectifs (calculs automatiques) -->
+    <div class="panel">
+        <div class="panel-title"><i class="fa-solid fa-bullseye" style="color:var(--accent);"></i> 4. Synthèse des objectifs (calcul automatique)</div>
+        <div class="panel-body">
+            <div class="cards" style="margin-bottom:0;">
+                <div class="card">
+                    <div class="num" id="syn-calls">0 / {{ settings.calls_target }}</div>
+                    <div class="lbl">Appels (cible {{ settings.calls_target }})</div>
+                    <div class="progress" style="margin-top:0.5rem;"><span id="syn-calls-bar" style="width:0%;"></span></div>
+                    <div class="helptext">Écart : <span id="syn-calls-gap">{{ settings.calls_target }}</span></div>
+                </div>
+                <div class="card">
+                    <div class="num blue" id="syn-demos">0 / {{ settings.demos_target }}</div>
+                    <div class="lbl">Démos (cible {{ settings.demos_target }})</div>
+                    <div class="progress" style="margin-top:0.5rem;"><span id="syn-demos-bar" style="width:0%;"></span></div>
+                    <div class="helptext">Écart : <span id="syn-demos-gap">{{ settings.demos_target }}</span></div>
+                </div>
+                <div class="card">
+                    <div class="num green" id="syn-signs">0 / {{ settings.signatures_target }}</div>
+                    <div class="lbl">Signatures (cible {{ settings.signatures_target }})</div>
+                    <div class="progress" style="margin-top:0.5rem;"><span id="syn-signs-bar" style="width:0%;"></span></div>
+                    <div class="helptext">Écart : <span id="syn-signs-gap">{{ settings.signatures_target }}</span></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Section 5 — Commentaires & retours terrain -->
+    <div class="panel">
+        <div class="panel-title"><i class="fa-solid fa-comments" style="color:var(--accent);"></i> 5. Commentaires &amp; retours terrain</div>
+        <div class="panel-body">
+            <div class="form-grid" style="grid-template-columns: 1fr;">
+                <div class="form-field">
+                    <label for="id_went_well">Ce qui a bien marché</label>
+                    {{ report_form.went_well }}
+                    {% for e in report_form.went_well.errors %}<ul class="errorlist"><li>{{ e }}</li></ul>{% endfor %}
+                </div>
+                <div class="form-field">
+                    <label for="id_difficulties">Difficultés rencontrées</label>
+                    {{ report_form.difficulties }}
+                    {% for e in report_form.difficulties.errors %}<ul class="errorlist"><li>{{ e }}</li></ul>{% endfor %}
+                </div>
+                <div class="form-field">
+                    <label for="id_needs_next_week">Besoins pour la semaine prochaine</label>
+                    {{ report_form.needs_next_week }}
+                    {% for e in report_form.needs_next_week.errors %}<ul class="errorlist"><li>{{ e }}</li></ul>{% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Actions -->
+    <div class="panel no-print">
+        <div class="panel-body" style="display:flex; gap:0.7rem; flex-wrap:wrap;">
+            <button type="submit" name="action" value="save" class="btn btn-gray">
+                <i class="fa-solid fa-floppy-disk"></i> Enregistrer le brouillon
+            </button>
+            <button type="submit" name="action" value="submit" class="btn btn-green">
+                <i class="fa-solid fa-paper-plane"></i> Soumettre le rapport
+            </button>
+            {% if report.pk %}
+            <a class="btn btn-blue" href="{% url 'sales:export_xlsx' report.pk %}"><i class="fa-solid fa-file-excel"></i> Excel</a>
+            <a class="btn btn-blue" href="{% url 'sales:export_pdf' report.pk %}"><i class="fa-solid fa-file-pdf"></i> PDF</a>
+            {% if is_admin or report.status == 'DRAFT' %}
+            <button type="button" class="btn btn-danger" style="margin-left:auto;" onclick="if(confirm('Supprimer définitivement ce rapport ?')) document.getElementById('delete-form').submit();">
+                <i class="fa-solid fa-trash"></i> Supprimer
+            </button>
+            {% endif %}
+            {% endif %}
+            {% if breakdown %}
+            <div class="badge badge-ok" style="align-self:center;">
+                <i class="fa-solid fa-sack-dollar"></i> Commission calculée : {{ breakdown.total }} $
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</form>
+
+{% if report.pk %}
+<form method="post" action="{% url 'sales:report_delete' report.pk %}" id="delete-form">
+    {% csrf_token %}
+</form>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+    "use strict";
+    const form = document.getElementById("report-form");
+    const money = (n) => (Math.round(n * 100) / 100).toLocaleString("fr-FR") + " $";
+    const PILOT_BUS = parseFloat("{{ settings.pilot_bus_amount|escapejs }}") || 30;
+
+    // ---- Plage de semaine (Du/Au) + libellés de jours ----
+    const WEEKDAYS = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi"];
+    const weekInput = document.getElementById("id_week_start");
+    const weekRange = document.getElementById("week-range");
+    function fmt(d) { return d.toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric" }); }
+    function updateWeekRange() {
+        if (!weekInput || !weekInput.value) return;
+        const parts = weekInput.value.split("-").map(Number);
+        const monday = new Date(parts[0], parts[1] - 1, parts[2]);
+        const saturday = new Date(monday); saturday.setDate(monday.getDate() + 5);
+        weekRange.textContent = "Du " + fmt(monday) + " au " + fmt(saturday);
+        // Libellés de la grille prospection
+        document.querySelectorAll(".prosp-grid tbody tr:not(.prosp-total)").forEach((tr, i) => {
+            const d = new Date(monday); d.setDate(monday.getDate() + i);
+            const cell = tr.querySelector("td:first-child");
+            if (cell && i < 6) cell.textContent = WEEKDAYS[i] + " " + fmt(d).slice(0, 5);
+        });
+    }
+    if (weekInput) { weekInput.addEventListener("change", updateWeekRange); updateWeekRange(); }
+
+    // ---- Totaux prospection + synthèse ----
+    function num(el) { const v = parseFloat(el && el.value); return isNaN(v) || v < 0 ? 0 : v; }
+    function recompute() {
+        const prefix = "prospection-";
+        let contacted = 0, replies = 0, rdv = 0;
+        for (let i = 0; i < 6; i++) {
+            contacted += num(form[prefix + i + "-ecoles_contactees"]);
+            replies   += num(form[prefix + i + "-reponses_positives"]);
+            rdv       += num(form[prefix + i + "-rdv_fixes"]);
+        }
+        document.getElementById("tot-contacted").textContent = contacted;
+        document.getElementById("tot-replies").textContent = replies;
+        document.getElementById("tot-rdv").textContent = rdv;
+
+        // Signatures = contrats cochés « signé » ; démos = lignes renseignées
+        let signs = 0, buses = 0, contractAmount = 0;
+        const contractsTotal = parseInt(document.getElementById("id_contracts-TOTAL_FORMS").value, 10) || 0;
+        for (let i = 0; i < contractsTotal; i++) {
+            const signed = document.getElementById("id_contracts-" + i + "-signed");
+            const busEl = document.getElementById("id_contracts-" + i + "-bus_count");
+            const school = document.getElementById("id_contracts-" + i + "-school_name");
+            if (!signed || !busEl || !school) continue;
+            const row = signed.closest(".fs-row");
+            if (row && row.classList.contains("hidden")) continue;
+            const busCount = Math.max(parseInt(busEl.value, 10) || 0, 0);
+            const amount = signed.checked ? busCount * PILOT_BUS : 0;
+            const amountEl = row ? row.querySelector(".row-amount") : null;
+            if (amountEl) amountEl.textContent = money(amount);
+            if (signed.checked && school.value.trim()) { signs++; buses += busCount; contractAmount += amount; }
+        }
+        document.getElementById("contracts-total").textContent = money(contractAmount);
+
+        const demosTotal = parseInt(document.getElementById("id_demos-TOTAL_FORMS").value, 10) || 0;
+        let demos = 0;
+        for (let i = 0; i < demosTotal; i++) {
+            const school = document.getElementById("id_demos-" + i + "-school_name");
+            const row = school && school.closest(".fs-row");
+            if (school && school.value.trim() && !(row && row.classList.contains("hidden"))) demos++;
+        }
+
+        setSynth("calls", contacted, {{ settings.calls_target }});
+        setSynth("demos", demos, {{ settings.demos_target }});
+        setSynth("signs", signs, {{ settings.signatures_target }});
+    }
+    function setSynth(key, realized, target) {
+        const pct = target > 0 ? Math.min(Math.round((realized / target) * 100), 100) : 0;
+        document.getElementById("syn-" + key).textContent = realized + " / " + target;
+        const bar = document.getElementById("syn-" + key + "-bar");
+        bar.style.width = pct + "%";
+        bar.parentElement.className = "progress" + (pct < 40 ? " bad" : pct < 75 ? " warn" : "");
+        document.getElementById("syn-" + key + "-gap").textContent = realized - target;
+    }
+    form.addEventListener("input", recompute);
+    form.addEventListener("change", recompute);
+
+    // ---- Lignes dynamiques (ajout / retrait) ----
+    document.querySelectorAll("[data-add-row]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+            const kind = btn.getAttribute("data-add-row");
+            const totalEl = document.getElementById("id_" + kind + "-TOTAL_FORMS");
+            const count = parseInt(totalEl.value, 10);
+            // Première ligne masquée disponible, sinon on révèle la dernière vide.
+            const rows = document.querySelectorAll('#rows-' + kind + ' .fs-row');
+            let target = null;
+            rows.forEach((r) => { if (!target && r.classList.contains("hidden")) target = r; });
+            if (target) {
+                target.classList.remove("hidden");
+            } else if (count > 0 && rows.length > 0) {
+                const last = rows[rows.length - 1];
+                if (isRowEmpty(last)) { last.classList.remove("hidden"); }
+            }
+            recompute();
+        });
+    });
+    function isRowEmpty(row) {
+        return Array.from(row.querySelectorAll('input[type="text"], input[type="number"], input[type="date"]'))
+            .every((i) => !i.value.trim());
+    }
+    document.querySelectorAll("[data-remove-row]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+            const row = btn.closest(".fs-row");
+            const del = row.querySelector('input[type="checkbox"][name$="-DELETE"]');
+            if (del) { del.checked = true; row.classList.add("hidden"); }
+            else { row.classList.add("hidden"); clearRow(row); }
+            recompute();
+        });
+    });
+    function clearRow(row) {
+        row.querySelectorAll('input[type="text"], input[type="number"], input[type="date"]').forEach((i) => { i.value = ""; });
+        row.querySelectorAll('input[type="checkbox"]').forEach((i) => { i.checked = false; });
+        row.querySelectorAll("select").forEach((s) => { s.selectedIndex = 0; });
+    }
+
+    recompute();
+})();
+</script>
+{% endblock %}

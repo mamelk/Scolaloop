@@ -41,6 +41,7 @@ from .services import (
     send_parent_sms,
 )
 from .signals import recalc_hold
+from .sales_views import user_has_sales_access
 
 logger = logging.getLogger(__name__)
 
@@ -1042,6 +1043,7 @@ def dashboard_view(request):
             if (total_taken + total_remaining) > 0
             else 0.0
         ),
+        "sales_access": user_has_sales_access(request.user),
     }
     return render(request, "routing/dashboard.html", context)
 

@@ -5,12 +5,19 @@ from .models import (
     Bus,
     BusMaintenance,
     BusStop,
+    CommissionValidation,
     GPSLog,
     Incident,
+    PhysicalDemo,
+    PilotContract,
+    ProspectionDay,
     Route,
     RouteStop,
     School,
+    SalesRep,
+    SalesSettings,
     Student,
+    WeeklyReport,
 )
 
 
@@ -102,3 +109,56 @@ class BusMaintenanceAdmin(admin.ModelAdmin):
         "bus", "service_type", "cost", "date_effectuee", "prochaine_echeance_km_ou_date",
     )
     list_filter = ("service_type", "bus")
+
+
+# ---------------------------------------------------------------- Suivi commercial
+
+@admin.register(SalesRep)
+class SalesRepAdmin(admin.ModelAdmin):
+    list_display = ("full_name", "phone", "email", "is_active", "fixed_monthly_salary", "user")
+    list_filter = ("is_active",)
+    search_fields = ("full_name", "phone", "email", "user__username")
+
+
+@admin.register(SalesSettings)
+class SalesSettingsAdmin(admin.ModelAdmin):
+    list_display = (
+        "calls_target", "demos_target", "signatures_target", "monthly_fixed_amount",
+        "commission_per_signature", "commission_per_active_bus", "pilot_bus_amount",
+    )
+
+    def has_add_permission(self, request):
+        # Singleton : pas de deuxième instance.
+        return not SalesSettings.objects.filter(pk=1).exists() and super().has_add_permission(request)
+
+
+class ProspectionDayInline(admin.TabularInline):
+    model = ProspectionDay
+    extra = 0
+
+
+class PhysicalDemoInline(admin.TabularInline):
+    model = PhysicalDemo
+    extra = 0
+
+
+class PilotContractInline(admin.TabularInline):
+    model = PilotContract
+    extra = 0
+
+
+@admin.register(WeeklyReport)
+class WeeklyReportAdmin(admin.ModelAdmin):
+    list_display = ("sales_rep", "week_start", "status", "submitted_at", "validated_by")
+    list_filter = ("status", "sales_rep")
+    search_fields = ("sales_rep__full_name",)
+    inlines = [ProspectionDayInline, PhysicalDemoInline, PilotContractInline]
+
+
+@admin.register(CommissionValidation)
+class CommissionValidationAdmin(admin.ModelAdmin):
+    list_display = (
+        "report", "received_at", "objectives_met", "total_amount",
+        "payment_status", "paid_at", "validated_by",
+    )
+    list_filter = ("payment_status", "objectives_met")

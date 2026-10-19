@@ -6,6 +6,10 @@ from routing import views
 from .healthz import healthz_view
 
 urlpatterns = [
+    # Suivi commercial — Doit précéder l'admin Django : les routes partagent
+    # le préfixe « admin/ » et seraient sinon avalées par l'admin (404).
+    path('', include('routing.sales_urls')),
+
     path('admin/', admin.site.urls),
 
     # Routing app montée à la racine (comme au dépôt initial) — doit précéder

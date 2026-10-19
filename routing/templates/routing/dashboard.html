@@ -236,6 +236,9 @@
             {% if request.user.is_superuser %}
             <a class="btn btn-secondary" href="{% url 'routing:schools_admin' %}" style="padding:0.5rem 1rem;">🏫 Admin. écoles</a>
             {% endif %}
+            {% if sales_access %}
+            <a class="btn btn-secondary" href="{% url 'sales:dashboard' %}" style="padding:0.5rem 1rem;">🎯 Suivi Commercial</a>
+            {% endif %}
             <a class="btn btn-secondary" href="{% url 'routing:logout' %}" style="padding:0.5rem 1rem;">Déconnexion</a>
         </div>
     </header>

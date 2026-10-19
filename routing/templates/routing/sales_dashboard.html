@@ -1,0 +1,176 @@
+{% extends "routing/_sales_shell.html" %}
+
+{% block title %}Suivi Commercial — Tableau de bord{% endblock %}
+
+{% block content %}
+<!-- Filtres -->
+<div class="panel no-print">
+    <div class="panel-title">
+        <span><i class="fa-solid fa-filter" style="color:var(--accent);"></i> Filtres — {{ filters.label }}</span>
+        <a class="btn btn-sm btn-gray" href="{% url 'sales:export_csv' %}{% if rep_filter %}?rep={{ rep_filter }}{% endif %}{% if week_filter %}&amp;week={{ week_filter }}{% endif %}{% if month_filter %}&amp;month={{ month_filter }}{% endif %}">
+            <i class="fa-solid fa-file-csv"></i> Export CSV
+        </a>
+    </div>
+    <div class="panel-body">
+        <form method="get" class="filters">
+            <div>
+                <label for="f-rep">Commercial</label>
+                <select id="f-rep" name="rep">
+                    <option value="">Tous les commerciaux</option>
+                    {% for r in reps %}
+                    <option value="{{ r.pk }}" {% if rep_filter == r.pk|stringformat:'s' %}selected{% endif %}>{{ r.full_name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label for="f-week">Semaine</label>
+                <input type="date" id="f-week" name="week" value="{{ week_filter }}">
+            </div>
+            <div>
+                <label for="f-month">Mois</label>
+                <input type="month" id="f-month" name="month" value="{{ month_filter }}">
+            </div>
+            <button type="submit" class="btn btn-green"><i class="fa-solid fa-magnifying-glass"></i> Appliquer</button>
+            <a class="btn btn-gray" href="{% url 'sales:dashboard' %}">Réinitialiser</a>
+        </form>
+    </div>
+</div>
+
+<!-- KPI Cards -->
+<div class="cards">
+    <div class="card">
+        <div class="num">{{ kpis.calls }}</div>
+        <div class="lbl"><i class="fa-solid fa-phone"></i> Appels / prospections</div>
+    </div>
+    <div class="card">
+        <div class="num blue">{{ kpis.demos }}</div>
+        <div class="lbl"><i class="fa-solid fa-person-chalkboard"></i> Démos physiques</div>
+    </div>
+    <div class="card">
+        <div class="num green">{{ kpis.signatures }}</div>
+        <div class="lbl"><i class="fa-solid fa-file-signature"></i> Contrats signés</div>
+    </div>
+    <div class="card">
+        <div class="num amber">{{ kpis.buses }}</div>
+        <div class="lbl"><i class="fa-solid fa-bus"></i> Bus actifs générés</div>
+    </div>
+    <div class="card">
+        <div class="num green">{{ kpis.commission }} $</div>
+        <div class="lbl"><i class="fa-solid fa-sack-dollar"></i> Commissions calculées</div>
+    </div>
+</div>
+
+<!-- Tableau comparatif -->
+<div class="panel">
+    <div class="panel-title">
+        <span><i class="fa-solid fa-ranking-star" style="color:var(--accent);"></i> Tableau comparatif des commerciaux</span>
+        <a class="btn btn-sm btn-green" href="{% url 'sales:report_new' %}"><i class="fa-solid fa-plus"></i> Nouveau rapport</a>
+    </div>
+    {% if rows %}
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>Commercial</th>
+                    <th>Appels</th>
+                    <th>Démos</th>
+                    <th>Signatures</th>
+                    <th>Taux d'atteinte</th>
+                    <th>Statut rapport</th>
+                    <th>Actions rapides</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in rows %}
+                <tr>
+                    <td><strong>{{ row.rep.full_name }}</strong>{% if row.rep.phone %}<div class="badge badge-none" style="margin-top:0.2rem;">{{ row.rep.phone }}</div>{% endif %}</td>
+                    <td>{{ row.realized.calls }} <span style="color:var(--muted);">/ {{ row.targets.calls }}</span></td>
+                    <td>{{ row.realized.demos }} <span style="color:var(--muted);">/ {{ row.targets.demos }}</span></td>
+                    <td>{{ row.realized.signatures }} <span style="color:var(--muted);">/ {{ row.targets.signatures }}</span></td>
+                    <td>
+                        <div style="display:flex; align-items:center; gap:0.5rem;">
+                            <div class="progress {% if row.attainment < 40 %}bad{% elif row.attainment < 75 %}warn{% endif %}">
+                                <span style="width: {{ row.attainment }}%;"></span>
+                            </div>
+                            <strong>{{ row.attainment }}%</strong>
+                        </div>
+                    </td>
+                    <td>
+                        {% if row.status_tone == 'ok' %}<span class="badge badge-ok"><i class="fa-solid fa-circle-check"></i> {{ row.status_label }}</span>
+                        {% elif row.status_tone == 'pending' %}<span class="badge badge-pending"><i class="fa-solid fa-clock"></i> {{ row.status_label }}</span>
+                        {% elif row.status_tone == 'late' %}<span class="badge badge-late"><i class="fa-solid fa-triangle-exclamation"></i> {{ row.status_label }}</span>
+                        {% elif row.status_tone == 'draft' %}<span class="badge badge-draft"><i class="fa-solid fa-pencil"></i> {{ row.status_label }}</span>
+                        {% else %}<span class="badge badge-none">{{ row.status_label }}</span>{% endif %}
+                    </td>
+                    <td>
+                        <div class="fs-actions">
+                            {% if row.report %}
+                            <a class="btn btn-sm btn-gray" href="{% url 'sales:report_edit' row.report.pk %}" title="Voir le rapport">
+                                <i class="fa-solid fa-eye"></i> Voir
+                            </a>
+                            {% if row.status_tone == 'pending' %}
+                            <a class="btn btn-sm btn-green" href="{% url 'sales:commission_validate' row.report.pk %}" title="Valider la commission">
+                                <i class="fa-solid fa-check"></i> Valider
+                            </a>
+                            {% elif row.status_tone == 'ok' %}
+                            <a class="btn btn-sm btn-blue" href="{% url 'sales:commission_validate' row.report.pk %}" title="Voir la fiche de commission">
+                                <i class="fa-solid fa-sack-dollar"></i> Fiche
+                            </a>
+                            {% else %}
+                            <form method="post" action="{% url 'sales:report_submit' row.report.pk %}" style="display:inline;">
+                                {% csrf_token %}
+                                <button type="submit" class="btn btn-sm btn-gray" title="Soumettre le rapport">
+                                    <i class="fa-solid fa-paper-plane"></i> Soumettre
+                                </button>
+                            </form>
+                            {% endif %}
+                            {% else %}
+                            <a class="btn btn-sm btn-gray" href="{% url 'sales:report_new' %}?rep={{ row.rep.pk }}" title="Saisir le rapport">
+                                <i class="fa-solid fa-pen"></i> Saisir
+                            </a>
+                            {% endif %}
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div class="empty">
+        <i class="fa-solid fa-user-slash"></i> Aucun commercial actif. Ajoutez-en via l'<a href="/admin/routing/salesrep/add/" style="color:var(--accent);">admin Django</a> ou la commande <code>seed_sales</code>.
+    </div>
+    {% endif %}
+</div>
+
+<!-- Rapports en attente -->
+{% if reports %}
+<div class="panel">
+    <div class="panel-title"><i class="fa-solid fa-inbox" style="color:var(--accent);"></i> Rapports de la période ({{ reports|length }})</div>
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr><th>Commercial</th><th>Semaine</th><th>Statut</th><th>Soumis le</th><th>Validé par</th><th>Actions</th></tr>
+            </thead>
+            <tbody>
+                {% for r in reports %}
+                <tr>
+                    <td>{{ r.sales_rep.full_name }}</td>
+                    <td>Du {{ r.week_start|date:'d/m/Y' }} au {{ r.week_end|date:'d/m/Y' }}</td>
+                    <td>
+                        {% if r.status == 'VALIDATED' %}<span class="badge badge-ok">{{ r.get_status_display }}</span>
+                        {% elif r.status == 'SUBMITTED' %}<span class="badge badge-pending">{{ r.get_status_display }}</span>
+                        {% elif r.is_late %}<span class="badge badge-late">En retard</span>
+                        {% else %}<span class="badge badge-draft">{{ r.get_status_display }}</span>{% endif %}
+                    </td>
+                    <td>{{ r.submitted_at|date:'d/m/Y H:i'|default:'—' }}</td>
+                    <td>{{ r.validated_by.username|default:'—' }}</td>
+                    <td><a class="btn btn-sm btn-gray" href="{% url 'sales:report_edit' r.pk %}"><i class="fa-solid fa-eye"></i></a></td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endif %}
+{% endblock %}

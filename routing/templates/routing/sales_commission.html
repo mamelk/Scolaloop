@@ -1,0 +1,157 @@
+{% extends "routing/_sales_shell.html" %}
+
+{% block title %}Validation de commission — {{ report.sales_rep.full_name }}{% endblock %}
+
+{% block content %}
+<!-- Récapitulatif du rapport -->
+<div class="panel">
+    <div class="panel-title">
+        <span><i class="fa-solid fa-file-lines" style="color:var(--accent);"></i> Rapport — {{ report.sales_rep.full_name }} · semaine du {{ report.week_start|date:'d/m/Y' }} au {{ report.week_end|date:'d/m/Y' }}</span>
+        <span class="badge {% if report.status == 'VALIDATED' %}badge-ok{% else %}badge-pending{% endif %}">{{ report.get_status_display }}</span>
+    </div>
+    <div class="panel-body">
+        <div class="cards" style="margin-bottom:0;">
+            <div class="card">
+                <div class="num">{{ report.total_contacted }}</div>
+                <div class="lbl">Appels / prospections</div>
+            </div>
+            <div class="card">
+                <div class="num blue">{{ report.demos_count }}</div>
+                <div class="lbl">Démos physiques</div>
+            </div>
+            <div class="card">
+                <div class="num green">{{ report.signatures_count }}</div>
+                <div class="lbl">Contrats signés</div>
+            </div>
+            <div class="card">
+                <div class="num amber">{{ report.active_buses_cumulated }}</div>
+                <div class="lbl">Bus actifs générés (cumul)</div>
+            </div>
+            <div class="card">
+                <div class="num">{{ report.attainment }}%</div>
+                <div class="lbl">Taux d'atteinte</div>
+            </div>
+        </div>
+
+        <div style="margin-top:1rem;">
+            <a class="btn btn-sm btn-gray" href="{% url 'sales:report_edit' report.pk %}"><i class="fa-solid fa-eye"></i> Voir le rapport complet</a>
+            <a class="btn btn-sm btn-blue" href="{% url 'sales:export_pdf' report.pk %}"><i class="fa-solid fa-file-pdf"></i> PDF</a>
+            <a class="btn btn-sm btn-blue" href="{% url 'sales:export_xlsx' report.pk %}"><i class="fa-solid fa-file-excel"></i> Excel</a>
+        </div>
+    </div>
+</div>
+
+<!-- Contrats signés (détail) -->
+{% if report.contracts.all %}
+<div class="panel">
+    <div class="panel-title"><i class="fa-solid fa-file-signature" style="color:var(--accent);"></i> Contrats pilotes de la semaine</div>
+    <div class="table-wrap">
+        <table>
+            <thead><tr><th>Date</th><th>École</th><th>Bus</th><th>Signé</th><th>Montant estimé</th></tr></thead>
+            <tbody>
+                {% for c in report.contracts.all %}
+                <tr>
+                    <td>{{ c.date|date:'d/m/Y' }}</td>
+                    <td>{{ c.school_name }}</td>
+                    <td>{{ c.bus_count }}</td>
+                    <td>{% if c.signed %}<span class="badge badge-ok">Oui</span>{% else %}<span class="badge badge-none">Non</span>{% endif %}</td>
+                    <td>{{ c.estimated_amount }} $</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endif %}
+
+<!-- Bloc de validation & calculateur -->
+<div class="panel">
+    <div class="panel-title"><i class="fa-solid fa-calculator" style="color:var(--accent);"></i> Validation &amp; calculateur de rémunération</div>
+    <div class="panel-body">
+        <form method="post">
+            {% csrf_token %}
+            <div class="form-grid">
+                <div class="form-field">
+                    <label for="id_received_at">{{ form.received_at.label }} *</label>
+                    {{ form.received_at }}
+                    {% for e in form.received_at.errors %}<ul class="errorlist"><li>{{ e }}</li></ul>{% endfor %}
+                </div>
+                <div class="form-field">
+                    <label for="id_payment_status">{{ form.payment_status.label }} *</label>
+                    {{ form.payment_status }}
+                    {% for e in form.payment_status.errors %}<ul class="errorlist"><li>{{ e }}</li></ul>{% endfor %}
+                </div>
+                <div class="form-field">
+                    <label>{{ form.objectives_met.label }}</label>
+                    <div class="switch-row">
+                        {{ form.objectives_met }}
+                        <span style="font-size:0.85rem; color:var(--muted);">Cible : {{ settings.calls_target }} appels · {{ settings.demos_target }} démos · {{ settings.signatures_target }} signature(s)</span>
+                    </div>
+                    {% for e in form.objectives_met.errors %}<ul class="errorlist"><li>{{ e }}</li></ul>{% endfor %}
+                </div>
+            </div>
+
+            <!-- Calculateur -->
+            <div class="panel" style="margin-top:1.2rem; box-shadow:none;">
+                <div class="panel-title" style="border-bottom-style:dashed;">
+                    <span><i class="fa-solid fa-coins" style="color:var(--accent);"></i> Calculateur automatique</span>
+                    {% if existing %}<span class="badge badge-ok">Fiche générée le {{ existing.validated_at|date:'d/m/Y H:i' }}</span>{% endif %}
+                </div>
+                <div class="panel-body">
+                    <div class="calcline">
+                        <span><i class="fa-solid fa-lock" style="color:var(--muted);"></i> Fixe mensuel <span style="color:var(--muted); font-size:0.78rem;">({{ preview.monthly_fixed }} $ / mois ÷ 4 semaines)</span></span>
+                        <strong>{{ preview.fixed_week }} $</strong>
+                    </div>
+                    <div class="calcline">
+                        <span><i class="fa-solid fa-file-signature" style="color:var(--muted);"></i> Commission par signature <span style="color:var(--muted); font-size:0.78rem;">({{ settings.commission_per_signature }} $ × {{ preview.signatures }} école(s))</span></span>
+                        <strong>{{ preview.signature_amount }} $</strong>
+                    </div>
+                    <div class="calcline">
+                        <span><i class="fa-solid fa-bus" style="color:var(--muted);"></i> Commission récurrente bus <span style="color:var(--muted); font-size:0.78rem;">({{ settings.commission_per_active_bus }} $ × {{ preview.active_buses }} bus actif(s) cumulés)</span></span>
+                        <strong>{{ preview.bus_amount }} $</strong>
+                    </div>
+                    <div class="calcline">
+                        <span><i class="fa-solid fa-sack-dollar"></i> Total commission à payer</span>
+                        <span>{{ preview.total }} $</span>
+                    </div>
+                </div>
+            </div>
+
+            <div style="display:flex; gap:0.7rem; flex-wrap:wrap; margin-top:1rem;">
+                <button type="submit" name="action" value="validate" class="btn btn-green">
+                    <i class="fa-solid fa-check-double"></i> {% if existing %}Re-valider et régénérer la fiche{% else %}Valider et Générer la Fiche de Commission{% endif %}
+                </button>
+                {% if existing %}
+                <button type="submit" name="action" value="payment" class="btn btn-gray">
+                    <i class="fa-solid fa-money-check-dollar"></i> Mettre à jour le statut de paiement
+                </button>
+                {% endif %}
+                <button type="button" class="btn btn-blue no-print" onclick="window.print();">
+                    <i class="fa-solid fa-print"></i> Imprimer la fiche
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Fiche persistée -->
+{% if existing %}
+<div class="panel">
+    <div class="panel-title"><i class="fa-solid fa-receipt" style="color:var(--accent);"></i> Fiche de commission — {{ existing.total_amount }} $</div>
+    <div class="panel-body">
+        <table>
+            <tbody>
+                <tr><td>Reçue le</td><td>{{ existing.received_at|date:'d/m/Y' }}</td></tr>
+                <tr><td>Objectifs atteints</td><td>{% if existing.objectives_met %}<span class="badge badge-ok">OUI</span>{% else %}<span class="badge badge-late">NON</span>{% endif %}</td></tr>
+                <tr><td>Fixe (part hebdo)</td><td>{{ existing.fixed_amount }} $</td></tr>
+                <tr><td>Signatures</td><td>{{ existing.signature_amount }} $ ({{ existing.signatures_count }} école(s))</td></tr>
+                <tr><td>Bus actifs</td><td>{{ existing.bus_amount }} $ ({{ existing.active_buses_count }} bus)</td></tr>
+                <tr><td><strong>Total</strong></td><td><strong style="color:var(--accent); font-size:1.05rem;">{{ existing.total_amount }} $</strong></td></tr>
+                <tr><td>Statut paiement</td><td>{{ existing.get_payment_status_display }}{% if existing.paid_at %} — payé le {{ existing.paid_at|date:'d/m/Y' }}{% endif %}</td></tr>
+                <tr><td>Validée par</td><td>{{ existing.validated_by.username|default:'—' }} le {{ existing.validated_at|date:'d/m/Y H:i' }}</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endif %}
+{% endblock %}
