@@ -55,3 +55,6 @@ scripts/
 # Système
 .DS_Store
 Thumbs.db
+
+# Dépendances Node (compilation Tailwind locale uniquement)
+node_modules/

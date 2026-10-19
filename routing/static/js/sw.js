@@ -19,7 +19,7 @@
 
 'use strict';
 
-var VERSION = 'scolaloop-v1.1.2';
+var VERSION = 'scolaloop-v1.1.3';
 var STATIC_CACHE = VERSION + '-static';
 var PAGE_CACHE = VERSION + '-pages';
 var TILE_CACHE = VERSION + '-tiles';
@@ -104,10 +104,20 @@ function isStaticAsset(url) {
     // Bibliothèques CDN (feuilles de style, scripts, polices, icônes).
     var host = url.hostname;
     return host === 'unpkg.com'
+        || host === 'cdn.jsdelivr.net'
         || host === 'cdnjs.cloudflare.com'
         || host === 'fonts.googleapis.com'
-        || host === 'fonts.gstatic.com'
-        || host === 'output.css';
+        || host === 'fonts.gstatic.com';
+}
+
+/* Tuiles raster des fournisseurs de fond de carte (uniquement du .png). */
+function isTileRequest(url) {
+    if (url.pathname.slice(-4) !== '.png') return false;
+    var host = url.hostname;
+    return host === 'tile.openstreetmap.org'
+        || /(^|\.)tile\.openstreetmap\.(org|fr)$/.test(host)
+        || host.indexOf('tile.') === 0
+        || host.indexOf('basemaps.cartocdn.com') !== -1;
 }
 
 /* Réseau d'abord, cache en secours — pour les pages HTML (navigations). */
@@ -158,7 +168,12 @@ function tileStrategy(request) {
             if (cached) return cached;
             return fetch(request)
                 .then(function (response) {
-                    if (response && response.ok) {
+                    // Les tuiles chargées par <img> sont des réponses « opaque »
+                    // (type opaque, status 0) : response.ok vaut false, mais le
+                    // corps est bel et bien une image cachable. Sans ce test,
+                    // le cache de tuiles restait toujours vide.
+                    var storable = response && (response.ok || response.type === 'opaque');
+                    if (storable) {
                         cache.put(request, response.clone());
                         trimTileCache(cache);
                     }
@@ -195,8 +210,8 @@ self.addEventListener('fetch', function (event) {
         return; // comportement réseau par défaut
     }
 
-    // Tuiles OpenStreetMap : cache local prioritaire.
-    if (url.hostname.indexOf('tile.openstreetmap.org') !== -1) {
+    // Tuiles de la carte : cache local prioritaire.
+    if (isTileRequest(url)) {
         event.respondWith(tileStrategy(request));
         return;
     }

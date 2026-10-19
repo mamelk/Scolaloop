@@ -251,6 +251,9 @@
         const errBox = document.getElementById('gps-error');
         const mapWrap = document.getElementById('map-wrap');
 
+        // Centre de repli quand l'adresse n'est pas trouvée (Lubumbashi).
+        const DEFAULT_CENTER = [-11.6647, 27.4794];
+
         let map = null, marker = null;
 
         function showError(msg) {
@@ -273,7 +276,7 @@
         function initMap(lat, lng) {
             if (!map) {
                 map = L.map('school-map').setView([lat, lng], 16);
-                L.tileLayer('https://{s}.tile.openstreetmap.fr/{z}/{x}/{y}.png', {
+                L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
                     maxZoom: 19,
                     attribution: '© OpenStreetMap'
                 }).addTo(map);
@@ -282,6 +285,13 @@
                     const ll = marker.getLatLng();
                     setCoords(ll.lat, ll.lng);
                     showBadge(ll.lat.toFixed(6), ll.lng.toFixed(6));
+                });
+                // Clic sur la carte : place le marqueur (utile quand l'adresse
+                // n'existe pas encore dans OpenStreetMap).
+                map.on('click', (event) => {
+                    marker.setLatLng(event.latlng);
+                    setCoords(event.latlng.lat, event.latlng.lng);
+                    showBadge(event.latlng.lat.toFixed(6), event.latlng.lng.toFixed(6));
                 });
             } else {
                 map.setView([lat, lng], 16);
@@ -337,18 +347,35 @@
             if (!address) { showError("Saisissez d'abord l'adresse physique pour la géolocaliser."); return; }
             geoBtn.disabled = true;
             try {
-                const resp = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address)}&limit=1`);
-                const results = await resp.json();
-                if (results.length === 0) {
-                    showError('Adresse introuvable — utilisez le capteur GPS ou saisissez les coordonnées manuellement.');
-                    return;
+                // Nominatim ne connaît pas encore beaucoup de rues locales :
+                // on tente l'adresse complète, puis la ville seule.
+                const parts = address.split(',').map((p) => p.trim()).filter(Boolean);
+                const queries = [address];
+                if (parts.length > 1) queries.push(parts.slice(-2).join(', '));
+                if (parts.length > 2) queries.push(parts[parts.length - 1]);
+
+                let hit = null;
+                for (const query of queries) {
+                    const resp = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=1`);
+                    if (!resp.ok) continue;
+                    const results = await resp.json();
+                    if (results.length) { hit = results[0]; break; }
                 }
-                const lat = parseFloat(results[0].lat), lng = parseFloat(results[0].lon);
-                setCoords(lat, lng);
-                initMap(lat, lng);
-                showBadge(lat.toFixed(6), lng.toFixed(6));
+
+                if (hit) {
+                    const lat = parseFloat(hit.lat), lng = parseFloat(hit.lon);
+                    setCoords(lat, lng);
+                    initMap(lat, lng);
+                    showBadge(lat.toFixed(6), lng.toFixed(6));
+                } else {
+                    // Adresse absente d'OSM : on affiche quand même la carte
+                    // pour que l'utilisateur place le point à la main.
+                    initMap(DEFAULT_CENTER[0], DEFAULT_CENTER[1]);
+                    showError("Adresse introuvable sur OpenStreetMap — cliquez sur la carte ou déplacez le marqueur pour situer l'école.");
+                }
             } catch (e) {
-                showError('Géocodage indisponible (réseau ?) — utilisez le capteur GPS ou saisissez les coordonnées manuellement.');
+                initMap(DEFAULT_CENTER[0], DEFAULT_CENTER[1]);
+                showError('Géocodage indisponible (réseau ?) — cliquez sur la carte pour situer l\'école.');
             } finally {
                 geoBtn.disabled = false;
             }

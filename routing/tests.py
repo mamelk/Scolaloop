@@ -1,5 +1,6 @@
 import json
 from datetime import timedelta
+from pathlib import Path
 from unittest.mock import patch
 
 from django.conf import settings
@@ -595,6 +596,40 @@ class ServiceWorkerTests(TestCase):
         self.assertEqual(resp["Service-Worker-Allowed"], "/")
         self.assertIn("application/javascript", resp["Content-Type"])
         self.assertIn(b"tile.openstreetmap.org", resp.content)
+
+
+class MapTileSourceTests(TestCase):
+    """Toutes les cartes doivent pointer vers un serveur de tuiles qui répond.
+    Régression couverte : les URLs ``{s}.tile.openstreetmap.fr`` renvoyaient
+    HTTP 404 pour chaque tuile → carte entièrement grise sur tous les écrans."""
+
+    TILE_SNIPPET = "tile.openstreetmap.org/{z}/{x}/{y}.png"
+
+    def test_templates_use_working_tile_server(self):
+        for name in [
+            "dashboard.html",
+            "parent.html",
+            "driver.html",
+            "replay.html",
+            "setup_home.html",
+            "register_school.html",
+        ]:
+            with self.subTest(template=name):
+                path = Path(settings.BASE_DIR) / "routing" / "templates" / "routing" / name
+                source = path.read_text(encoding="utf-8")
+                self.assertNotIn("tile.openstreetmap.fr", source)
+
+    def test_driver_map_script_uses_working_tile_server(self):
+        path = Path(settings.BASE_DIR) / "routing" / "static" / "js" / "driver_map.js"
+        source = path.read_text(encoding="utf-8")
+        self.assertIn(self.TILE_SNIPPET, source)
+        self.assertNotIn("tile.openstreetmap.fr", source)
+
+    def test_service_worker_caches_opaque_tile_responses(self):
+        # Les tuiles <img> sont des réponses « opaque » : sans ce test dans le
+        # service worker, le cache de tuiles restait toujours vide.
+        resp = self.client.get("/sw.js")
+        self.assertIn(b"response.type === 'opaque'", resp.content)
 
 
 class SeoAndHomeTests(TestCase):
