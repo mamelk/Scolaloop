@@ -42,7 +42,7 @@ var CDN_ASSETS = [
     'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js',
     'https://cdn.jsdelivr.net/npm/leaflet-polylinedecorator@1.6.0/dist/leaflet.polylineDecorator.min.js',
     'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css',
-    'https://cdn.tailwindcss.com',
+    '/static/css/output.css',
 ];
 
 /* Tuile transparente 1x1 : repli lorsque la tuile demandée n'est pas en cache
@@ -107,7 +107,7 @@ function isStaticAsset(url) {
         || host === 'cdnjs.cloudflare.com'
         || host === 'fonts.googleapis.com'
         || host === 'fonts.gstatic.com'
-        || host === 'cdn.tailwindcss.com';
+        || host === 'output.css';
 }
 
 /* Réseau d'abord, cache en secours — pour les pages HTML (navigations). */
