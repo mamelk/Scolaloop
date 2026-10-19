@@ -140,7 +140,7 @@
         // Zoom par défaut élevé : les noms de rues/avenues sont immédiatement
         // lisibles ; l'auto-centrage du suivi GPS conserve ce niveau de zoom.
         map = L.map('map').setView(start, DEFAULT_ZOOM);
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        L.tileLayer('https://{s}.tile.openstreetmap.fr/{z}/{x}/{y}.png', {
             maxZoom: 19,
             attribution: '&copy; OpenStreetMap'
         }).addTo(map);

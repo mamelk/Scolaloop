@@ -679,7 +679,7 @@
         // ---------- Carte ----------
         const data = JSON.parse(document.getElementById('map-data').textContent);
         const map = L.map('map').setView([-11.66, 27.47], 13);
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        L.tileLayer('https://{s}.tile.openstreetmap.fr/{z}/{x}/{y}.png', {
             maxZoom: 19,
             attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
         }).addTo(map);

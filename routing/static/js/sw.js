@@ -19,7 +19,7 @@
 
 'use strict';
 
-var VERSION = 'scolaloop-v1.1.1';
+var VERSION = 'scolaloop-v1.1.2';
 var STATIC_CACHE = VERSION + '-static';
 var PAGE_CACHE = VERSION + '-pages';
 var TILE_CACHE = VERSION + '-tiles';
