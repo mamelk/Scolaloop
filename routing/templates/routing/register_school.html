@@ -41,7 +41,8 @@
             color: white; padding: 1.6rem 2rem; text-align: center;
         }
         .card-header .logo { display: flex; justify-content: center; margin-bottom: 0.6rem; }
-        .card-header .logo img { height: 2.6rem; }
+        /* Logo blanc : le SVG d'origine est bleu foncé, illisible sur l'en-tête bleu. */
+        .card-header .logo img { height: 2.6rem; filter: brightness(0) invert(1); }
         .card-header h1 { font-size: 1.3rem; font-weight: 800; letter-spacing: 0.3px; }
         .card-header p { font-size: 0.83rem; opacity: 0.9; margin-top: 0.25rem; }
         .card-body { padding: 1.6rem 2rem 2rem; }

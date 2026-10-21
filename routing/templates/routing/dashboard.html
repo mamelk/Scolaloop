@@ -67,8 +67,14 @@
             background: white;
             border-bottom: 1px solid var(--border);
             padding: 0 1.5rem;
+            /* Six onglets ne tiennent pas sur un téléphone : on les fait
+               défiler horizontalement plutôt que de les couper. */
+            overflow-x: auto;
+            scrollbar-width: thin;
         }
         .tab-btn {
+            flex: 0 0 auto;
+            white-space: nowrap;
             background: none;
             border: none;
             padding: 0.9rem 1.2rem;
@@ -81,7 +87,7 @@
         .tab-btn.active { color: var(--primary); border-bottom-color: var(--accent); }
         .tab-panel { display: none; padding: 1.5rem; max-width: 1400px; margin: 0 auto; }
         .tab-panel.active { display: block; }
-        #map { height: 600px; border-radius: 8px; border: 1px solid var(--border); }
+        #map { height: 640px; border-radius: 8px; border: 1px solid var(--border); }
         .card {
             background: white;
             border: 1px solid var(--border);
@@ -135,6 +141,12 @@
         .assign-btn:active { transform: translateY(1px); }
         .toolbar { display: flex; gap: 0.5rem; margin-bottom: 0.8rem; flex-wrap: wrap; }
         .stats-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 1rem; }
+        /* Tableaux larges : défilement horizontal au lieu d'un rognage. */
+        .table-wrap { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+        .table-wrap table { min-width: 720px; }
+        .table-wrap th:first-child, .table-wrap td:first-child { white-space: nowrap; }
+        .main-split { flex-wrap: nowrap; }
+        .main-split > .flex-1 { min-width: 0; }
         .stat-card { border-top: 4px solid var(--accent); }
         .stat-card .big { font-size: 1.6rem; font-weight: 700; }
         .stat-row { display: flex; justify-content: space-between; font-size: 0.85rem; padding: 0.2rem 0; }
@@ -220,6 +232,24 @@
         .map-icon.bus { background: #f1c40f; color: #7d6608; }
         .map-icon.student { background: #2196f3; }
         .map-icon.student.frozen { background: #9e9e9e; }
+
+        /* ---- Adaptation téléphone / tablette ---- */
+        @media (max-width: 960px) {
+            header { padding: 0.9rem 1rem; }
+            .kpi-row { padding: 0 1rem; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 0.6rem; }
+            .kpi-card { padding: 0.75rem 0.9rem; }
+            .kpi-card .kpi-val { font-size: 1.4rem; }
+            .tab-panel { padding: 1rem 0.9rem; }
+            .main-split { flex-direction: column; align-items: stretch; }
+            .fleet-sidebar { width: 100%; min-width: 0; max-height: 230px; }
+            #map { height: 55vh; min-height: 300px; }
+            .assign-alert { margin: 0.8rem 0.9rem 0; }
+            .messages { padding: 0 0.9rem; }
+            th, td { padding: 0.45rem 0.4rem; }
+        }
+        @media (max-width: 420px) {
+            .kpi-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        }
     </style>
 </head>
 <body>
@@ -308,14 +338,14 @@
                 ⚠️ <strong>Aucune école définie.</strong> Créez une école (admin ou seed) avant d'optimiser.
             {% endif %}
         </div>
-        <div class="flex gap-4 items-start">
+        <div class="flex gap-4 items-start main-split">
             <!-- Barre latérale : bus en circulation avec badges de vitesse -->
             <aside class="fleet-sidebar">
                 <h3>🚌 Bus en circulation</h3>
                 <div id="fleet-sidebar-list"></div>
             </aside>
             <div class="flex-1">
-                <div id="map" style="height: 640px;"></div>
+                <div id="map"></div>
                 <div class="card legend">
                     <span>🏫 <strong>École</strong></span>
                     <span>🚌 <strong>Bus</strong> (base : école)</span>
@@ -338,6 +368,7 @@
                 <button class="btn btn-secondary" onclick="openDialog('student-freeze')">❄️ Geler un groupe (Excel)</button>
             </div>
             {% if students %}
+            <div class="table-wrap">
             <table>
                 <thead>
                     <tr><th>Matricule</th><th>Nom</th><th>Adresse</th><th>Statut</th><th>Actions</th></tr>
@@ -378,6 +409,7 @@
                     {% endfor %}
                 </tbody>
             </table>
+            </div>
             {% else %}
             <p class="empty">Aucun élève actif.</p>
             {% endif %}
@@ -394,6 +426,7 @@
                 <a class="btn btn-secondary" href="{% url 'routing:export_students_by_bus' %}">📥 Liste élèves par bus (Excel)</a>
             </div>
             {% if buses %}
+            <div class="table-wrap">
             <table>
                 <thead><tr><th>Code bus</th><th>Chauffeur</th><th>Capacité</th><th>État</th><th>Actions</th></tr></thead>
                 <tbody>
@@ -427,6 +460,7 @@
                     {% endfor %}
                 </tbody>
             </table>
+            </div>
             {% else %}
             <p class="empty">Aucun bus.</p>
             {% endif %}
@@ -538,6 +572,7 @@
         {% if maintenance %}
         <div class="card">
             <h2>Historique des entretiens</h2>
+            <div class="table-wrap">
             <table>
                 <thead><tr><th>Bus</th><th>Type</th><th>Coût</th><th>Date</th><th>Prochaine échéance</th><th>Action</th></tr></thead>
                 <tbody>
@@ -559,6 +594,7 @@
                     {% endfor %}
                 </tbody>
             </table>
+            </div>
         </div>
         {% else %}
         <div class="card"><p class="empty">Aucun entretien enregistré pour le moment.</p></div>

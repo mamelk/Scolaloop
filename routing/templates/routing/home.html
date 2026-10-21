@@ -47,6 +47,8 @@
         .nav {
             display: flex; justify-content: space-between; align-items: center;
             padding: 1rem 2rem; background: var(--primary); color: white;
+            /* Sur téléphone, la barre passe à la ligne au lieu de déborder. */
+            flex-wrap: wrap; gap: 0.6rem;
         }
         .nav .logo { display: flex; align-items: center; }
         .hero .brand { margin-bottom: 1.2rem; text-align: center; }
@@ -84,12 +86,28 @@
         .benefit strong { display: block; margin-bottom: 0.2rem; }
         .benefit p { font-size: 0.88rem; color: #5d6d7e; }
         footer { text-align: center; padding: 1.5rem; font-size: 0.8rem; color: #6c757d; }
+
+        /* ---- Adaptation téléphone / tablette ---- */
+        @media (max-width: 640px) {
+            .nav { padding: 0.8rem 1rem; }
+            .nav .logo img { height: 2rem; }
+            .nav .user { font-size: 0.8rem; gap: 0.7rem !important; }
+            .hero { padding: 2.6rem 1.2rem; }
+            .hero h1 { font-size: 1.75rem; }
+            .hero p { font-size: 1rem; }
+            .hero .brand img { height: 2.6rem; }
+            .section { padding: 2rem 1.2rem; }
+            .section h2 { font-size: 1.35rem; margin-bottom: 1.4rem; }
+            .grid { grid-template-columns: 1fr; }
+            .benefit-list { grid-template-columns: 1fr; }
+            .btn { padding: 0.75rem 1.5rem; font-size: 1rem; }
+        }
     </style>
 </head>
 <body>
     <nav class="nav">
         <span class="logo"><img src="{% static 'images/logo.svg' %}" alt="Scolaloop Logo" class="h-10 w-auto logo-white"></span>
-        <span class="user" style="display:flex; align-items:center; gap:1rem;">
+        <span class="user" style="display:flex; align-items:center; gap:1rem; flex-wrap:wrap;">
             <a href="{% url 'routing:about' %}" style="color:#f1c40f;">À propos</a>
             <a href="{% url 'routing:manual' %}" style="color:#f1c40f;">Manuel</a>
             {% if user.is_authenticated %}

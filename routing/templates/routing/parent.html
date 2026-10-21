@@ -24,7 +24,10 @@
         header {
             background: linear-gradient(135deg, #2563eb, #1e40af); color: white;
             padding: 1rem 1.2rem; display: flex; justify-content: space-between; align-items: center; gap: 0.8rem;
+            /* Le bandeau ne doit jamais pousser la page en largeur sur mobile. */
+            flex-wrap: wrap;
         }
+        header > div { min-width: 0; }
         header h1 { font-size: 1.15rem; font-weight: 700; }
         header .sub { font-size: 0.85rem; opacity: 0.9; }
         header a { color: #fecaca; text-decoration: none; font-size: 0.85rem; }
@@ -49,6 +52,9 @@
         .distance-label { font-size: 0.85rem; color: #64748b; text-transform: uppercase; letter-spacing: 0.08em; }
         .distance-value { font-size: 3rem; font-weight: 800; color: var(--blue); line-height: 1.15; }
         .distance-value .unit { font-size: 1.2rem; font-weight: 600; color: #94a3b8; }
+        /* Valeur inconnue : un tiret cadratin en 3rem ressemble à une barre bleue. */
+        .distance-value #distance.pending { font-size: 0.5em; color: #94a3b8; }
+        #eta.pending { font-size: 1rem !important; color: #94a3b8 !important; }
         #map { height: 45vh; }
         .sound-btn {
             display: block; margin: 1rem auto; padding: 0.9rem 1.6rem; font-size: 1rem; font-weight: 700;
@@ -94,6 +100,18 @@
         .msg { padding: 0.7rem 1rem; font-size: 0.9rem; font-weight: 600; }
         .msg.success { background: #d4edda; color: #155724; border-bottom: 2px solid #c3e6cb; }
         .msg.warning { background: #fff3cd; color: #664d03; border-bottom: 2px solid #f0b429; }
+        /* ---- Adaptation téléphone / tablette ---- */
+        @media (max-width: 560px) {
+            header { padding: 0.85rem 0.9rem; gap: 0.6rem; }
+            header h1 { font-size: 1.02rem; }
+            header .sub { font-size: 0.78rem; }
+            header img.h-10 { height: 2rem; }
+            .badge { padding: 0.42rem 0.75rem; font-size: 0.78rem; }
+            #map { height: 38vh; }
+            .distance-card { margin: 0.8rem; padding: 1rem; }
+            .distance-value { font-size: 2.4rem; }
+            .absence-card, .absence-banner { margin: 0.8rem; }
+        }
     </style>
 </head>
 <body>
@@ -122,10 +140,10 @@
 
     <div class="distance-card">
         <div class="distance-label">🚌 Le bus est à</div>
-        <div class="distance-value"><span id="distance">—</span> <span class="unit">m</span></div>
+        <div class="distance-value"><span id="distance" class="pending">—</span> <span class="unit">m</span></div>
         <div class="distance-label">de chez vous</div>
         <div class="distance-label" style="margin-top:0.7rem;">⏰ Arrivée estimée à l'école</div>
-        <div id="eta" style="font-size:1.5rem; font-weight:800; color:var(--green);">—</div>
+        <div id="eta" class="pending" style="font-size:1.5rem; font-weight:800; color:var(--green);">—</div>
     </div>
 
     {% if absent_today %}
@@ -162,6 +180,17 @@
         const alertBanner = document.getElementById('alert-banner');
         const distanceEl = document.getElementById('distance');
         const busNote = document.getElementById('bus-note');
+
+        // « — » (valeur inconnue) reste discret ; un nombre reprend le grand style.
+        function setDistance(value) {
+            if (value === '—' || value == null) {
+                distanceEl.textContent = '—';
+                distanceEl.classList.add('pending');
+            } else {
+                distanceEl.textContent = value;
+                distanceEl.classList.remove('pending');
+            }
+        }
 
         // ---------- Carte ----------
         const map = L.map('map').setView([student.latitude, student.longitude], 15);
@@ -278,14 +307,16 @@
             if (data.status === 'en_route' && data.eta_minutes != null) {
                 const eta = new Date(Date.now() + data.eta_minutes * 60000);
                 etaEl.textContent = eta.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+                etaEl.classList.remove('pending');
             } else {
                 etaEl.textContent = '—';
+                etaEl.classList.add('pending');
             }
             if (data.is_picked_up) {
                 setStatus('taken', '✅ Enfant récupéré');
                 alertBanner.classList.add('hidden');
                 inAlertZone = false;
-                distanceEl.textContent = '—';
+                setDistance('—');
                 busNote.textContent = 'Votre enfant a été pris en charge par le bus.';
                 return;
             }
@@ -295,7 +326,7 @@
                 setStatus('waiting', 'Trajet non démarré');
                 alertBanner.classList.add('hidden');
                 inAlertZone = false;
-                distanceEl.textContent = '—';
+                setDistance('—');
                 busNote.textContent = 'Aucun trajet n\'a encore été planifié pour votre enfant. L\'affectation se fait automatiquement.';
                 return;
             }
@@ -304,12 +335,12 @@
                 setStatus('waiting', 'Bus au dépôt');
                 alertBanner.classList.add('hidden');
                 inAlertZone = false;
-                distanceEl.textContent = '—';
+                setDistance('—');
                 busNote.textContent = 'Le bus est à l\'école, en attente du départ…';
                 return;
             }
             const d = haversineM(student.latitude, student.longitude, data.bus_lat, data.bus_lng);
-            distanceEl.textContent = Math.round(d);
+            setDistance(Math.round(d));
             moveBus(data.bus_lat, data.bus_lng);
             drawRoute(data);
             const speedText = data.speed_kmh ? ` — ${data.speed_kmh} km/h` : '';

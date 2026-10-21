@@ -128,6 +128,24 @@
         .msg { padding: 0.7rem 1rem; border-radius: 9px; font-size: 0.85rem; font-weight: 600; margin-bottom: 0.5rem; }
         .msg.success { background: #e8f8ef; color: #14532d; border: 1px solid #b7e4c7; }
         .msg.error { background: #fdecea; color: #7f1d1d; border: 1px solid #f5c6cb; }
+
+        /* Tableaux : défilement horizontal sur petit écran plutôt qu'un rognage. */
+        .table-wrap { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+        .table-wrap table { min-width: 780px; }
+
+        /* ---- Adaptation téléphone / tablette ---- */
+        @media (max-width: 760px) {
+            header { padding: 1rem; }
+            header .brand-block svg, header .brand-block img { max-width: 110px; }
+            .container { padding: 0 0.9rem; margin: 1rem auto; }
+            .cards { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 0.7rem; }
+            .card { padding: 0.9rem 1rem; }
+            .card .num { font-size: 1.45rem; }
+            .card .lbl { font-size: 0.72rem; }
+            .charts { padding: 1rem 0.9rem; grid-template-columns: 1fr; }
+            .panel-title { padding: 0.85rem 1rem; }
+            th, td { padding: 0.6rem 0.8rem; }
+        }
     </style>
 </head>
 <body>
@@ -170,6 +188,7 @@
         <div class="panel">
             <div class="panel-title"><i class="fa-solid fa-building-columns" style="color:var(--accent);"></i> Liste des écoles</div>
             {% if rows %}
+            <div class="table-wrap">
             <table>
                 <thead>
                     <tr>
@@ -239,6 +258,7 @@
                     {% endfor %}
                 </tbody>
             </table>
+            </div>
             {% else %}
             <div class="empty">
                 <i class="fa-solid fa-school"></i>
@@ -271,6 +291,7 @@
             </div>
 
             {% if rows %}
+            <div class="table-wrap">
             <table style="margin-top:0.4rem;">
                 <thead>
                     <tr>
@@ -296,6 +317,7 @@
                     {% endfor %}
                 </tbody>
             </table>
+            </div>
             {% endif %}
         </div>
     </div>
