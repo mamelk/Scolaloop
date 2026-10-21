@@ -33,7 +33,7 @@
         .brand-block { display: flex; align-items: center; gap: 1rem; }
         .brand-block svg { max-width: 150px; }
         header .sub { font-size: 0.82rem; opacity: 0.85; margin-top: 0.2rem; }
-        header .actions { display: flex; gap: 0.6rem; align-items: center; }
+        header .actions { display: flex; gap: 0.6rem; align-items: center; flex-wrap: wrap; }
         .btn {
             display: inline-flex; align-items: center; gap: 0.4rem;
             padding: 0.55rem 1rem; border-radius: 9px; font-size: 0.85rem; font-weight: 600;
@@ -159,6 +159,7 @@
         </div>
         <div class="actions">
             <a class="btn btn-light" href="{% url 'routing:register_school' %}"><i class="fa-solid fa-plus"></i> Créer une école</a>
+            <a class="btn btn-light" href="{% url 'sales:dashboard' %}"><i class="fa-solid fa-bullseye"></i> Suivi Commercial</a>
             <a class="btn btn-light" href="/admin/"><i class="fa-solid fa-cog"></i> Django Admin</a>
             <a class="btn btn-light" href="{% url 'routing:logout' %}">Déconnexion</a>
         </div>
