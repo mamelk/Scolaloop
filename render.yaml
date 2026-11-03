@@ -25,4 +25,7 @@ databases:
   - name: scolaloop-db
     databaseName: scolaloop
     user: scolaloop_user
-    plan: free
+    # Plan payant obligatoire : les bases gratuites Render expirent 30 jours
+    # apres leur creation (14 jours de grace, puis suppression definitive des
+    # donnees). basic-256mb est le plus petit plan payant.
+    plan: basic-256mb

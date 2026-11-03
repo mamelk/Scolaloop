@@ -10,7 +10,6 @@ ortools==9.15.6755
 
 # Data / Import-Export
 openpyxl==3.1.5
-pandas==3.0.5
 
 # HTTP (OSRM API, SMS)
 requests==2.34.2
