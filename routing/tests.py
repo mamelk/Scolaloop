@@ -13,8 +13,10 @@ from django.utils import timezone
 from .models import (
     Bus,
     BusStop,
+    BusMaintenance,
     CommissionValidation,
     FuelRecord,
+    ParentNotification,
     GPSLog,
     Incident,
     PhysicalDemo,
@@ -26,6 +28,7 @@ from .models import (
     SalesSettings,
     School,
     Student,
+    StudentTrip,
     WeeklyReport,
 )
 from .services import auto_assign_student_to_bus, estimate_bus_delay
@@ -1199,3 +1202,173 @@ class FuelManagementTests(TestCase):
         self.assertTrue(stat["overconsumption"])
         self.assertEqual(len(resp.context["fuel_alerts"]), 1)
         self.assertContains(resp, "Alerte de surconsommation")
+
+
+class ExpansionFeaturesTests(TestCase):
+    """Carburant chauffeur, dépose, notifications parents, rapports, graphiques
+    et page SEO « transport scolaire »."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.school = School.objects.create(
+            code_ecole="EXP1", name="École Expansion", latitude=0.0, longitude=0.0
+        )
+        cls.admin = User.objects.create_user(username="EXPADMIN", password="x")
+        cls.school.user = cls.admin
+        cls.school.save(update_fields=["user"])
+        cls.bus = Bus.objects.create(
+            code_bus="EXPBUS", school=cls.school, capacity=30,
+            driver_name="Chauffeur Test", fuel_alert_threshold=Decimal("24.0"),
+        )
+        cls.driver = User.objects.create_user(username="EXPDRV", password="x")
+        cls.bus.driver_user = cls.driver
+        cls.bus.must_change_password = False
+        cls.bus.save(update_fields=["driver_user", "must_change_password"])
+        cls.route = Route.objects.create(
+            name="Tournée EXP", bus=cls.bus, school=cls.school, total_distance_km=5
+        )
+        cls.student = Student.objects.create(
+            matricule="EXPMAT1",
+            school=cls.school,
+            prenom="Aline",
+            nom="Test",
+            address="Domicile test",
+            latitude=0.01,
+            longitude=0.01,
+            assigned_route=cls.route,
+        )
+
+    def setUp(self):
+        # Neutralise les appels réseau OSRM déclenchés par les signaux.
+        self.osrm_patcher = patch(
+            "routing.services.get_road_route_geometry", return_value=None
+        )
+        self.table_patcher = patch(
+            "routing.services.get_road_distance_matrix", return_value=None
+        )
+        self.osrm_patcher.start()
+        self.table_patcher.start()
+        self.addCleanup(self.osrm_patcher.stop)
+        self.addCleanup(self.table_patcher.stop)
+
+    # ------------------------------------------------------------- Carburant
+    def test_driver_can_record_fuel(self):
+        self.client.force_login(self.driver)
+        resp = self.client.post(
+            "/driver/carburant/",
+            {
+                "date_plein": "2026-11-10",
+                "liters": "40",
+                "price_per_liter": "1.40",
+                "odometer_km": "12000",
+                "fuel_type": "Gasoil",
+                "station": "Total",
+            },
+        )
+        self.assertEqual(resp.status_code, 302)
+        record = FuelRecord.objects.get(bus=self.bus)
+        self.assertEqual(record.total_cost, Decimal("56.00"))
+        page = self.client.get("/driver/")
+        self.assertContains(page, "Derniers pleins")
+
+    # ------------------------------------------------------------- Trajets
+    def test_pickup_and_dropoff_create_history_and_notifications(self):
+        self.client.force_login(self.driver)
+        resp = self.client.post(f"/driver/pickup/{self.student.pk}/")
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(StudentTrip.objects.filter(event="pickup", student=self.student).exists())
+        self.assertTrue(
+            ParentNotification.objects.filter(
+                student=self.student, category=ParentNotification.CATEGORY_PICKUP
+            ).exists()
+        )
+
+        resp = self.client.post(f"/driver/dropoff/{self.student.pk}/")
+        self.assertEqual(resp.status_code, 302)
+        self.student.refresh_from_db()
+        self.assertFalse(self.student.is_taken)
+        self.assertTrue(StudentTrip.objects.filter(event="dropoff", student=self.student).exists())
+
+    def test_parent_sees_notifications_and_history(self):
+        parent = User.objects.create_user(username="EXPPARENT", password="x")
+        self.student.parent_user = parent
+        self.student.save(update_fields=["parent_user"])
+        ParentNotification.objects.create(
+            student=self.student, bus=self.bus, message="Le bus approche.",
+            category=ParentNotification.CATEGORY_APPROACH,
+        )
+        StudentTrip.objects.create(
+            student=self.student, bus=self.bus, event=StudentTrip.EVENT_PICKUP
+        )
+        self.client.force_login(parent)
+        resp = self.client.get("/parent/")
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "Le bus approche.")
+        self.assertContains(resp, "Historique des trajets")
+
+    # ------------------------------------------------------------- Rapports
+    def test_fuel_export_xlsx(self):
+        FuelRecord.objects.create(
+            bus=self.bus, liters=Decimal("30"), price_per_liter=Decimal("1.50"),
+            odometer_km=1000,
+        )
+        self.client.force_login(self.admin)
+        resp = self.client.get("/dashboard/carburant/export/")
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn("spreadsheetml", resp["Content-Type"])
+
+    def test_monthly_report_pdf_and_xlsx(self):
+        self.client.force_login(self.admin)
+        pdf = self.client.get("/rapport-mensuel/")
+        self.assertEqual(pdf.status_code, 200)
+        self.assertEqual(pdf["Content-Type"], "application/pdf")
+        xlsx = self.client.get("/rapport-mensuel/?format=xlsx")
+        self.assertEqual(xlsx.status_code, 200)
+        self.assertIn("spreadsheetml", xlsx["Content-Type"])
+
+    def test_statistics_page_has_charts(self):
+        StudentTrip.objects.create(
+            student=self.student, bus=self.bus, event=StudentTrip.EVENT_PICKUP
+        )
+        self.client.force_login(self.admin)
+        resp = self.client.get("/statistiques/")
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "Prises en charge")
+        self.assertEqual(resp.context["charts"]["pickups"]["total"], 1)
+
+    # ------------------------------------------------------------- Entretien
+    def test_maintenance_due_alert(self):
+        BusMaintenance.objects.create(
+            bus=self.bus,
+            service_type="Vidange",
+            date_effectuee=timezone.localdate() - timedelta(days=60),
+            prochaine_echeance_date=timezone.localdate() + timedelta(days=3),
+        )
+        self.client.force_login(self.admin)
+        resp = self.client.get("/dashboard/")
+        self.assertEqual(resp.context["maintenance_alert_count"], 1)
+        self.assertContains(resp, "Entretiens à prévoir")
+
+    def test_fuel_threshold_uses_bus_value(self):
+        FuelRecord.objects.create(
+            bus=self.bus, date_plein=timezone.localdate() - timedelta(days=2),
+            liters=Decimal("20"), price_per_liter=Decimal("1"), odometer_km=1000,
+        )
+        FuelRecord.objects.create(
+            bus=self.bus, date_plein=timezone.localdate(), liters=Decimal("60"),
+            price_per_liter=Decimal("1"), odometer_km=1200,
+        )
+        self.client.force_login(self.admin)
+        resp = self.client.get("/dashboard/")
+        stat = next(s for s in resp.context["fuel_stats"] if s["bus"] == self.bus)
+        self.assertEqual(stat["alert_threshold"], 24.0)
+        self.assertTrue(stat["overconsumption"])
+
+    # ------------------------------------------------------------- SEO
+    def test_transport_scolaire_landing_page(self):
+        resp = self.client.get("/transport-scolaire/")
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "Logiciel de transport scolaire")
+        self.assertContains(resp, "FAQPage")
+        sitemap = self.client.get("/sitemap.xml")
+        self.assertContains(sitemap, "/transport-scolaire/")

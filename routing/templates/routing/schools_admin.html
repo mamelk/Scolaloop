@@ -8,7 +8,7 @@
     <link rel="icon" type="image/svg+xml" href="{% static 'images/logo.svg' %}">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
     <style>
         :root {
@@ -146,6 +146,23 @@
             .panel-title { padding: 0.85rem 1rem; }
             th, td { padding: 0.6rem 0.8rem; }
         }
+
+        /* ---- Cohérence visuelle avec le tableau de bord ---- */
+        body { font-family: 'Poppins', 'Segoe UI', system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+        header {
+            background: linear-gradient(135deg, #4f46e5, #2563eb);
+            box-shadow: 0 4px 16px rgba(37, 99, 235, 0.22);
+            position: sticky; top: 0; z-index: 100;
+        }
+        .card, .panel { box-shadow: 0 4px 18px rgba(15, 23, 42, 0.06); }
+        .card { border-radius: 14px; }
+        .btn { font-family: inherit; }
+        .btn-green { background: #10b981; }
+        .btn-green:hover { background: #059669; }
+        .btn-light { background: rgba(255, 255, 255, 0.16); border: 1px solid rgba(255, 255, 255, 0.2); }
+        .btn-light:hover { background: rgba(255, 255, 255, 0.26); }
+        th { font-size: 0.68rem; }
+        td { font-size: 0.82rem; }
     </style>
 </head>
 <body>

@@ -3,7 +3,7 @@ import json
 import logging
 import os
 import re
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 
 from django.contrib import messages
@@ -12,11 +12,12 @@ from django.contrib.auth.decorators import login_required
 from django.contrib.auth.forms import SetPasswordForm
 from django.contrib.staticfiles import finders
 from django.db import transaction
+from django.db.models import Count, Sum
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.utils.dateparse import parse_date
-from openpyxl import load_workbook
+from openpyxl import Workbook, load_workbook
 
 from .forms import BusForm, LoginForm, SchoolRegisterForm, StudentForm
 
@@ -28,9 +29,11 @@ from .models import (
     FuelRecord,
     GPSLog,
     Incident,
+    ParentNotification,
     Route,
     School,
     Student,
+    StudentTrip,
 )
 from .services import (
     DELAY_THRESHOLD_MINUTES,
@@ -131,9 +134,9 @@ def _fuel_statistics(buses):
         reference_consumption = (
             latest_consumption if latest_consumption is not None else consumption
         )
+        threshold = float(bus.fuel_threshold)
         overconsumption = (
-            reference_consumption is not None
-            and reference_consumption > FuelRecord.CONSUMPTION_ALERT_L_PER_100KM
+            reference_consumption is not None and reference_consumption > threshold
         )
 
         stats.append(
@@ -148,10 +151,52 @@ def _fuel_statistics(buses):
                 "latest_consumption": latest_consumption,
                 "has_latest_consumption": latest_consumption is not None,
                 "overconsumption": overconsumption,
+                "alert_threshold": threshold,
                 "last_fill": records[0] if records else None,
             }
         )
     return stats
+
+
+def _maintenance_alerts(school):
+    """Entretiens à prévoir : échéance datée dans 14 jours ou kilométrage proche.
+
+    Le kilométrage courant du bus est le dernier relevé de plein saisi ; sans
+    relevé, seule l'échéance datée peut déclencher une alerte.
+    """
+    today = timezone.localdate()
+    soon = today + timedelta(days=14)
+    alerts = []
+    records = (
+        BusMaintenance.objects.filter(bus__school=school)
+        .select_related("bus")
+        .order_by("prochaine_echeance_date", "prochaine_echeance_km")
+    )
+    for record in records:
+        reasons = []
+        due_date = record.prochaine_echeance_date
+        if due_date is not None and due_date <= soon:
+            if due_date < today:
+                reasons.append(f"échéance dépassée depuis le {due_date:%d/%m/%Y}")
+            else:
+                reasons.append(f"à prévoir avant le {due_date:%d/%m/%Y}")
+        due_km = record.prochaine_echeance_km
+        if due_km is not None:
+            current_km = (
+                record.bus.fuel_records.exclude(odometer_km=None)
+                .order_by("-odometer_km")
+                .values_list("odometer_km", flat=True)
+                .first()
+            )
+            if current_km is not None and due_km <= current_km + 500:
+                remaining = due_km - current_km
+                if remaining < 0:
+                    reasons.append(f"dépassement de {abs(remaining)} km")
+                else:
+                    reasons.append(f"dans {remaining} km")
+        if reasons:
+            alerts.append({"record": record, "reasons": reasons})
+    return alerts
 
 
 def _student_for_user(user):
@@ -271,6 +316,11 @@ def sitemap_xml_view(request):
             'changefreq': 'daily',
         },
         {
+            'loc': f"{base}{reverse('routing:transport_scolaire')}",
+            'priority': '0.9',
+            'changefreq': 'weekly',
+        },
+        {
             'loc': f"{base}{reverse('routing:about')}",
             'priority': '0.8',
             'changefreq': 'monthly',
@@ -342,11 +392,22 @@ def home_view(request):
     """Page d'accueil publique du système de transport scolaire."""
     ctx = _seo_context(
         request,
-        title='Scolaloop — Système de Transport Scolaire Intelligent | ESTECH',
-        description='Scolaloop optimise les trajets de bus scolaires en temps réel : tournées en boucle fermée, itinéraires routiers OSRM, suivi GPS et gestion des élèves. Développé par ESTECH.',
+        title='Scolaloop — Logiciel de Gestion de Transport Scolaire | Bus & GPS | ESTECH',
+        description='Logiciel de gestion de transport scolaire : optimisation des tournées de bus, suivi GPS en temps réel, gestion des élèves, carburant et communication parents-école. Solution éditée par ESTECH pour les écoles en RDC et en Afrique.',
         url_path='/',
     )
     return render(request, "routing/home.html", ctx)
+
+
+def transport_scolaire_view(request):
+    """Page d'atterrissage optimisée pour la recherche « transport scolaire »."""
+    ctx = _seo_context(
+        request,
+        title='Transport Scolaire : Logiciel de Gestion de Bus Scolaires — Scolaloop',
+        description='Logiciel de transport scolaire pour écoles : planification des tournées de bus, suivi GPS des élèves, alertes parents, suivi du carburant et de l\'entretien. Démo et inscription gratuite avec Scolaloop.',
+        url_path='/transport-scolaire/',
+    )
+    return render(request, "routing/transport_scolaire.html", ctx)
 
 
 def electromenager_liste(request):
@@ -473,6 +534,7 @@ def manual_pdf_view(request):
         "    3.5 Gerer les absences et le gel",
         "    3.6 Envoyer un SMS d'urgence",
         "    3.7 Enregistrer une maintenance",
+        "    3.8 Suivre le carburant des bus",
         "4. Interface Chauffeur",
         "    4.1 Demarrer la journee",
         "    4.2 Suivre le trajet sur la carte",
@@ -483,6 +545,7 @@ def manual_pdf_view(request):
         "    5.1 Premiere connexion et configuration",
         "    5.2 Suivre le bus en temps reel",
         "    5.3 Signaler une absence",
+        "    5.4 Notifications et historique des trajets",
         "6. Administration generale (superutilisateur)",
         "7. FAQ et depannage",
     ]
@@ -634,6 +697,22 @@ def manual_pdf_view(request):
         "L'historique complet des maintenances par bus est visible dans le panneau "
         "de maintenance du tableau de bord.", body))
 
+    # 3.8 Carburant
+    story.append(Paragraph("3.8 Suivre le carburant des bus", h2))
+    story.append(Paragraph(B("Enregistrer un plein :"), body))
+    story.append(Paragraph("1. Ouvrir l'onglet " + B("Carburant") + " du tableau de bord", step))
+    story.append(Paragraph("2. Selectionner le bus concerne", step))
+    story.append(Paragraph("3. Saisir la date, la quantite en litres et le prix au litre", step))
+    story.append(Paragraph("4. Renseigner le kilometrage (indispensable pour la consommation)", step))
+    story.append(Paragraph("5. Choisir le type de carburant et la station, puis enregistrer", step))
+    story.append(Paragraph(
+        "Chaque bus affiche le cout total, le cout du mois et la consommation moyenne "
+        "en L/100 km. Au-dela du seuil du bus (25 L/100 km par defaut), une alerte "
+        "de surconsommation apparait dans le tableau de bord et l'onglet Carburant.", body))
+    story.append(Paragraph(
+        "Le chauffeur peut egalement saisir ses pleins depuis son interface mobile. "
+        "Un export Excel de la synthese par bus et du detail des pleins est disponible.", note_style))
+
     # ===== 4. INTERFACE CHAUFFEUR =====
     story.append(PageBreak())
     story.append(Paragraph("4. Interface Chauffeur", h1))
@@ -752,6 +831,13 @@ def manual_pdf_view(request):
     story.append(Paragraph(
         "Un eleve absent est automatiquement exclu des arrets du jour : "
         "le bus ne s'arretera pas a son domicile.", body))
+
+    # 5.4 Notifications et historique
+    story.append(Paragraph("5.4 Notifications et historique des trajets", h2))
+    story.append(Paragraph(
+        "L'interface parent affiche les notifications recues : bus en approche "
+        "(moins de 100 m), prise en charge et depose de l'enfant. La section "
+        "Historique des trajets liste les heures de montee et de descente du bus.", body))
 
     # ===== 6. ADMINISTRATION GENERALE =====
     story.append(PageBreak())
@@ -1074,6 +1160,7 @@ def dashboard_view(request):
     )
     fuel_stats = _fuel_statistics(buses)
     fuel_alerts = [f for f in fuel_stats if f["overconsumption"]]
+    maintenance_alerts = _maintenance_alerts(school)
 
     # Contrainte d'affectation : élèves avec position GPS mais sans bus attribué
     # (dont les cas de surcapacité) — affichés en bannière d'alerte prioritaire.
@@ -1108,6 +1195,8 @@ def dashboard_view(request):
         "fuel_stats": fuel_stats,
         "fuel_alerts": fuel_alerts,
         "fuel_alert_threshold": FuelRecord.CONSUMPTION_ALERT_L_PER_100KM,
+        "maintenance_alerts": maintenance_alerts,
+        "maintenance_alert_count": len(maintenance_alerts),
         "fuel_types": [t[0] for t in FuelRecord.FUEL_TYPES],
         "absent_today": absent_student_ids(),
         "unassigned_count": unassigned_count,
@@ -1180,11 +1269,29 @@ def maintenance_add(request):
         except (TypeError, ValueError, ArithmeticError):
             cost = Decimal(0)
         date_str = request.POST.get("date_effectuee") or timezone.localdate().isoformat()
+
+        due_date_raw = (request.POST.get("prochaine_echeance_date") or "").strip()
+        due_date = parse_date(due_date_raw) if due_date_raw else None
+
+        due_km_raw = (request.POST.get("prochaine_echeance_km") or "").strip()
+        due_km = None
+        if due_km_raw:
+            try:
+                due_km = int(due_km_raw)
+            except (TypeError, ValueError):
+                messages.error(request, "Le kilométrage d'échéance doit être un nombre entier.")
+                return redirect("routing:dashboard")
+            if due_km < 0:
+                messages.error(request, "Le kilométrage d'échéance ne peut pas être négatif.")
+                return redirect("routing:dashboard")
+
         BusMaintenance.objects.create(
             bus=bus,
             service_type=service_type,
             cost=cost,
             date_effectuee=date_str,
+            prochaine_echeance_date=due_date,
+            prochaine_echeance_km=due_km,
             prochaine_echeance_km_ou_date=request.POST.get("prochaine_echeance", "").strip(),
         )
         messages.success(request, f"Entretien « {service_type} » enregistré pour {bus.code_bus}.")
@@ -1210,6 +1317,52 @@ def maintenance_delete(request, pk):
 # ---------------------------------------------------------------- Carburant (école)
 
 
+def _fuel_form_values(request):
+    """Valide les champs d'un plein. Retourne (données, message d'erreur)."""
+    try:
+        liters = Decimal(request.POST.get("liters") or 0)
+    except (TypeError, ValueError, ArithmeticError):
+        return None, "La quantité de carburant est invalide."
+    if liters <= 0:
+        return None, "La quantité de carburant doit être supérieure à 0 litre."
+
+    try:
+        price_per_liter = Decimal(request.POST.get("price_per_liter") or 0)
+    except (TypeError, ValueError, ArithmeticError):
+        return None, "Le prix au litre est invalide."
+    if price_per_liter < 0:
+        return None, "Le prix au litre ne peut pas être négatif."
+
+    fuel_type = request.POST.get("fuel_type") or FuelRecord.FUEL_GASOIL
+    if fuel_type not in {t[0] for t in FuelRecord.FUEL_TYPES}:
+        return None, "Type de carburant invalide."
+
+    odometer_raw = (request.POST.get("odometer_km") or "").strip()
+    odometer_km = None
+    if odometer_raw:
+        try:
+            odometer_km = int(odometer_raw)
+        except (TypeError, ValueError):
+            return None, "Le kilométrage doit être un nombre entier."
+        if odometer_km < 0:
+            return None, "Le kilométrage ne peut pas être négatif."
+
+    date_raw = request.POST.get("date_plein") or ""
+    date_plein = parse_date(date_raw) if date_raw else None
+    if date_plein is None:
+        date_plein = timezone.localdate()
+
+    return {
+        "date_plein": date_plein,
+        "liters": liters,
+        "price_per_liter": price_per_liter,
+        "odometer_km": odometer_km,
+        "fuel_type": fuel_type,
+        "station": request.POST.get("station", "").strip(),
+        "note": request.POST.get("note", "").strip(),
+    }, None
+
+
 @login_required
 def fuel_add(request):
     """Enregistre un plein de carburant pour un bus de l'école."""
@@ -1221,61 +1374,42 @@ def fuel_add(request):
 
     school = _user_school(request.user)
     bus = get_object_or_404(Bus, pk=request.POST.get("bus_id"), school=school)
-
-    try:
-        liters = Decimal(request.POST.get("liters") or 0)
-    except (TypeError, ValueError, ArithmeticError):
-        liters = Decimal(0)
-    if liters <= 0:
-        messages.error(request, "La quantité de carburant doit être supérieure à 0 litre.")
+    data, error = _fuel_form_values(request)
+    if error:
+        messages.error(request, error)
         return redirect("routing:dashboard")
 
-    try:
-        price_per_liter = Decimal(request.POST.get("price_per_liter") or 0)
-    except (TypeError, ValueError, ArithmeticError):
-        price_per_liter = Decimal(0)
-    if price_per_liter < 0:
-        messages.error(request, "Le prix au litre ne peut pas être négatif.")
-        return redirect("routing:dashboard")
-
-    fuel_type = request.POST.get("fuel_type") or FuelRecord.FUEL_GASOIL
-    if fuel_type not in {t[0] for t in FuelRecord.FUEL_TYPES}:
-        messages.error(request, "Type de carburant invalide.")
-        return redirect("routing:dashboard")
-
-    odometer_raw = (request.POST.get("odometer_km") or "").strip()
-    odometer_km = None
-    if odometer_raw:
-        try:
-            odometer_km = int(odometer_raw)
-        except (TypeError, ValueError):
-            messages.error(request, "Le kilométrage doit être un nombre entier.")
-            return redirect("routing:dashboard")
-        if odometer_km < 0:
-            messages.error(request, "Le kilométrage ne peut pas être négatif.")
-            return redirect("routing:dashboard")
-
-    date_raw = request.POST.get("date_plein") or ""
-    date_plein = parse_date(date_raw) if date_raw else None
-    if date_plein is None:
-        date_plein = timezone.localdate()
-
-    FuelRecord.objects.create(
-        bus=bus,
-        date_plein=date_plein,
-        liters=liters,
-        price_per_liter=price_per_liter,
-        odometer_km=odometer_km,
-        fuel_type=fuel_type,
-        station=request.POST.get("station", "").strip(),
-        note=request.POST.get("note", "").strip(),
-    )
+    FuelRecord.objects.create(bus=bus, **data)
     messages.success(
         request,
-        f"Plein de {liters} L enregistré pour {bus.code_bus} "
-        f"({(liters * price_per_liter).quantize(Decimal('0.01'))} $).",
+        f"Plein de {data['liters']} L enregistré pour {bus.code_bus} "
+        f"({(data['liters'] * data['price_per_liter']).quantize(Decimal('0.01'))} $).",
     )
     return redirect("routing:dashboard")
+
+
+@login_required
+def driver_fuel_add(request):
+    """Le chauffeur enregistre un plein pour son propre bus."""
+    bus = getattr(request.user, "driven_bus", None)
+    if bus is None:
+        messages.error(request, "Aucun bus n'est assigné à votre compte chauffeur.")
+        return redirect("routing:dashboard")
+    if request.method != "POST":
+        return redirect("routing:driver")
+
+    data, error = _fuel_form_values(request)
+    if error:
+        messages.error(request, error)
+        return redirect("routing:driver")
+
+    FuelRecord.objects.create(bus=bus, **data)
+    messages.success(
+        request,
+        f"Plein de {data['liters']} L enregistré pour {bus.code_bus} "
+        f"({(data['liters'] * data['price_per_liter']).quantize(Decimal('0.01'))} $).",
+    )
+    return redirect("routing:driver")
 
 
 @login_required
@@ -1557,13 +1691,117 @@ def bus_reset_password(request, pk):
 # ---------------------------------------------------------------- Statistiques
 
 
+FRENCH_MONTHS = [
+    "janv.", "févr.", "mars", "avr.", "mai", "juin",
+    "juil.", "août", "sept.", "oct.", "nov.", "déc.",
+]
+
+
+def _bar_chart(rows, value_key):
+    """Ajoute une largeur de barre (%) relative au maximum de la série."""
+    max_value = max((row[value_key] for row in rows), default=0) or 1
+    for row in rows:
+        row["percent"] = round(row[value_key] / max_value * 100, 1)
+    return rows
+
+
+def _statistics_charts(school):
+    """Séries affichées dans l'onglet Statistiques (14 jours / 6 mois)."""
+    today = timezone.localdate()
+
+    # Prises en charge par jour sur les 14 derniers jours.
+    day_start = today - timedelta(days=13)
+    pickup_by_day = dict(
+        StudentTrip.objects.filter(
+            student__school=school,
+            event=StudentTrip.EVENT_PICKUP,
+            timestamp__date__gte=day_start,
+        )
+        .values_list("timestamp__date")
+        .annotate(total=Count("id"))
+        .values_list("timestamp__date", "total")
+    )
+    pickup_rows = [
+        {
+            "label": f"{day:%d/%m}",
+            "value": pickup_by_day.get(day, 0),
+            "unit": "élèves",
+        }
+        for day in (day_start + timedelta(days=i) for i in range(14))
+    ]
+
+    # Six derniers mois : carburant (litres + coût) et incidents.
+    month_starts = []
+    year, month = today.year, today.month
+    for _ in range(6):
+        month_starts.append((year, month))
+        month -= 1
+        if month == 0:
+            month, year = 12, year - 1
+    month_starts.reverse()
+
+    fuel_rows = []
+    for m_year, m_month in month_starts:
+        records = FuelRecord.objects.filter(
+            bus__school=school,
+            date_plein__year=m_year,
+            date_plein__month=m_month,
+        )
+        liters = records.aggregate(total=Sum("liters"))["total"] or Decimal(0)
+        cost = sum((r.total_cost for r in records), Decimal(0))
+        fuel_rows.append(
+            {
+                "label": f"{FRENCH_MONTHS[m_month - 1]} {m_year}",
+                "value": float(liters),
+                "cost": float(cost),
+                "unit": "L",
+            }
+        )
+
+    incident_rows = []
+    for m_year, m_month in month_starts:
+        incident_rows.append(
+            {
+                "label": f"{FRENCH_MONTHS[m_month - 1]} {m_year}",
+                "value": Incident.objects.filter(
+                    bus__school=school,
+                    timestamp__year=m_year,
+                    timestamp__month=m_month,
+                ).count(),
+                "unit": "incidents",
+            }
+        )
+
+    return {
+        "pickups": {
+            "title": "Prises en charge — 14 derniers jours",
+            "total": sum(row["value"] for row in pickup_rows),
+            "rows": _bar_chart(pickup_rows, "value"),
+        },
+        "fuel": {
+            "title": "Carburant — 6 derniers mois",
+            "total": round(sum(row["value"] for row in fuel_rows), 1),
+            "rows": _bar_chart(fuel_rows, "value"),
+        },
+        "incidents": {
+            "title": "Incidents — 6 derniers mois",
+            "total": sum(row["value"] for row in incident_rows),
+            "rows": _bar_chart(incident_rows, "value"),
+        },
+    }
+
+
 @login_required
 def statistics_view(request):
     blocked = _school_scope_guard(request)
     if blocked:
         return blocked
     school = _user_school(request.user)
-    context = {"stats": _bus_statistics(school=school)}
+    context = {
+        "stats": _bus_statistics(school=school),
+        "charts": _statistics_charts(school),
+        "school": school,
+    }
     return render(request, "routing/statistics.html", context)
 
 
@@ -1732,10 +1970,17 @@ def parent_dashboard_view(request):
     absent_today = Absence.objects.filter(
         student=student, date=timezone.localdate()
     ).exists()
+    notifications = list(student.notifications.all()[:20])
+    unread_notifications = student.notifications.filter(read_at__isnull=True).count()
+    # La page affiche les notifications : elles sont considérées comme lues.
+    student.notifications.filter(read_at__isnull=True).update(read_at=timezone.now())
     context = {
         "student": student,
         "bus": bus,
         "absent_today": absent_today,
+        "notifications": notifications,
+        "unread_notifications": unread_notifications,
+        "trips": student.trips.all()[:10],
         "student_data": {
             "name": " ".join(filter(None, [student.prenom, student.postnom, student.nom])),
             "latitude": student.latitude,
@@ -2178,10 +2423,13 @@ def driver_view(request):
         "bus": bus,
         "route": route,
         "students": students,
+        "taken_students": [s for s in students if s.is_taken],
         "taken": taken,
         "remaining": remaining,
         "total": total,
         "map_data": map_data,
+        "recent_fuel": bus.fuel_records.all()[:3],
+        "fuel_types": [t[0] for t in FuelRecord.FUEL_TYPES],
     }
     return render(request, "routing/driver.html", context)
 
@@ -2269,10 +2517,16 @@ def driver_update_position(request):
         if distance_m <= 100 and not student.parent_notified:
             student.parent_notified = True
             student.save(update_fields=["parent_notified"])
-            send_parent_sms(
-                student.parent_phone,
-                f"ATTENTION : le bus {bus.code_bus} est à moins de 100 m de chez vous. "
-                f"Préparez {student.prenom} !",
+            message = (
+                f"Le bus {bus.code_bus} est à moins de 100 m de chez vous. "
+                f"Préparez {student.prenom} !"
+            )
+            send_parent_sms(student.parent_phone, f"ATTENTION : {message}")
+            ParentNotification.objects.create(
+                student=student,
+                bus=bus,
+                category=ParentNotification.CATEGORY_APPROACH,
+                message=message,
             )
 
     return JsonResponse(
@@ -2301,6 +2555,23 @@ def driver_pickup_student(request, pk):
     route.students_remaining = max(0, route.students_remaining - 1)
     route.save(update_fields=["students_taken", "students_remaining"])
 
+    StudentTrip.objects.create(
+        student=student,
+        bus=bus,
+        event=StudentTrip.EVENT_PICKUP,
+        latitude=bus.last_latitude,
+        longitude=bus.last_longitude,
+    )
+    ParentNotification.objects.create(
+        student=student,
+        bus=bus,
+        category=ParentNotification.CATEGORY_PICKUP,
+        message=(
+            f"{student.prenom} a été pris en charge par le bus {bus.code_bus} "
+            f"à {timezone.localtime().strftime('%H:%M')}."
+        ),
+    )
+
     return JsonResponse(
         {
             "ok": True,
@@ -2310,6 +2581,49 @@ def driver_pickup_student(request, pk):
             "total": route.students.count(),
         }
     )
+
+
+@login_required
+def driver_dropoff_student(request, pk):
+    """Le chauffeur dépose un élève : retour à l'école ou fin de tournée."""
+    if request.method != "POST":
+        return JsonResponse({"error": "Méthode non autorisée."}, status=405)
+
+    bus = getattr(request.user, "driven_bus", None)
+    student = get_object_or_404(Student, pk=pk)
+    if bus is None or student.assigned_route is None or student.assigned_route.bus_id != bus.id:
+        return JsonResponse({"error": "Élève non autorisé pour ce bus."}, status=403)
+    if not student.is_taken:
+        return JsonResponse({"error": "Élève déjà déposé."}, status=400)
+
+    student.is_taken = False
+    # Autorise une nouvelle notification d'approche le lendemain.
+    student.parent_notified = False
+    student.save(update_fields=["is_taken", "parent_notified"])
+
+    route = student.assigned_route
+    route.students_taken = max(0, route.students_taken - 1)
+    route.students_remaining = min(route.students.count(), route.students_remaining + 1)
+    route.save(update_fields=["students_taken", "students_remaining"])
+
+    StudentTrip.objects.create(
+        student=student,
+        bus=bus,
+        event=StudentTrip.EVENT_DROPOFF,
+        latitude=bus.last_latitude,
+        longitude=bus.last_longitude,
+    )
+    ParentNotification.objects.create(
+        student=student,
+        bus=bus,
+        category=ParentNotification.CATEGORY_DROPOFF,
+        message=(
+            f"{student.prenom} a été déposé par le bus {bus.code_bus} "
+            f"à {timezone.localtime().strftime('%H:%M')}."
+        ),
+    )
+    messages.success(request, f"{student.prenom} a été déposé. Retour à l'école.")
+    return redirect("routing:driver")
 
 
 @login_required
@@ -3084,3 +3398,285 @@ def upload_students_freeze(request):
         f"{not_found} matricule(s) introuvable(s), {skipped} ligne(s) vide(s) ignorée(s).",
     )
     return redirect("routing:dashboard")
+
+
+# ---------------------------------------------------------------- Exports carburant
+
+
+@login_required
+def export_fuel(request):
+    """Export Excel : synthèse du carburant par bus + détail des pleins."""
+    blocked = _school_scope_guard(request)
+    if blocked:
+        return blocked
+    school = _user_school(request.user)
+    buses = Bus.objects.filter(school=school).order_by("code_bus")
+
+    wb = Workbook()
+    summary = wb.active
+    summary.title = "Synthèse carburant"
+    summary.append(
+        [
+            "Bus", "Chauffeur", "Pleins", "Litres", "Coût total ($)", "Coût ce mois ($)",
+            "Consommation (L/100 km)", "Seuil (L/100 km)", "Alerte", "Dernier plein",
+        ]
+    )
+    for stat in _fuel_statistics(buses):
+        summary.append(
+            [
+                stat["bus"].code_bus,
+                stat["bus"].driver_name,
+                stat["fill_count"],
+                float(stat["total_liters"]),
+                float(stat["total_cost"]),
+                float(stat["month_cost"]),
+                stat["consumption"] if stat["has_consumption"] else "",
+                stat["alert_threshold"],
+                "OUI" if stat["overconsumption"] else "NON",
+                stat["last_fill"].date_plein.isoformat() if stat["last_fill"] else "",
+            ]
+        )
+    for column, width in zip("ABCDEFGHIJ", (14, 20, 8, 10, 14, 16, 24, 18, 10, 14)):
+        summary.column_dimensions[column].width = width
+
+    detail = wb.create_sheet("Pleins")
+    detail.append(
+        ["Bus", "Date", "Carburant", "Litres", "Prix/L ($)", "Coût ($)", "Kilométrage", "Station", "Remarque"]
+    )
+    records = (
+        FuelRecord.objects.filter(bus__school=school)
+        .select_related("bus")
+        .order_by("-date_plein", "-created_at")
+    )
+    for record in records:
+        detail.append(
+            [
+                record.bus.code_bus,
+                record.date_plein.isoformat(),
+                record.fuel_type,
+                float(record.liters),
+                float(record.price_per_liter),
+                float(record.total_cost),
+                record.odometer_km or "",
+                record.station,
+                record.note,
+            ]
+        )
+    for column, width in zip("ABCDEFGHI", (14, 12, 12, 10, 12, 12, 14, 22, 28)):
+        detail.column_dimensions[column].width = width
+
+    filename = re.sub(r"[^\w\-]", "_", school.code_ecole) or "ecole"
+    response = HttpResponse(
+        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+    response["Content-Disposition"] = f'attachment; filename="carburant_{filename}.xlsx"'
+    wb.save(response)
+    return response
+
+
+# ---------------------------------------------------------------- Rapport mensuel
+
+
+def _month_bounds(month_param):
+    """Retourne (début, fin, libellé) pour 'YYYY-MM' (mois courant par défaut)."""
+    today = timezone.localdate()
+    year, month = today.year, today.month
+    if month_param:
+        try:
+            year, month = (int(part) for part in month_param.split("-", 1))
+            date(year, month, 1)  # validation
+        except (TypeError, ValueError):
+            year, month = today.year, today.month
+    start = date(year, month, 1)
+    end = date(year + (month == 12), 1 if month == 12 else month + 1, 1) - timedelta(days=1)
+    return start, end, f"{FRENCH_MONTHS[month - 1]} {year}"
+
+
+def _monthly_report_rows(school, start, end):
+    """Indicateurs du mois par bus : km, élèves, carburant, entretien, incidents."""
+    rows = []
+    for bus in Bus.objects.filter(school=school).order_by("code_bus"):
+        logs = list(
+            bus.gps_logs.filter(timestamp__date__range=(start, end)).order_by("timestamp")
+        )
+        distance = sum(
+            haversine_km(a.latitude, a.longitude, b.latitude, b.longitude)
+            for a, b in zip(logs, logs[1:])
+        )
+        fuels = list(bus.fuel_records.filter(date_plein__range=(start, end)))
+        liters = sum((r.liters for r in fuels), Decimal(0))
+        fuel_cost = sum((r.total_cost for r in fuels), Decimal(0))
+        maintenance = list(
+            bus.maintenance_records.filter(date_effectuee__range=(start, end))
+        )
+        maintenance_cost = sum((m.cost for m in maintenance), Decimal(0))
+        incidents = bus.incidents.filter(timestamp__date__range=(start, end)).count()
+        transported = (
+            StudentTrip.objects.filter(
+                bus=bus,
+                event=StudentTrip.EVENT_PICKUP,
+                timestamp__date__range=(start, end),
+            )
+            .values("student_id")
+            .distinct()
+            .count()
+        )
+        rows.append(
+            {
+                "bus": bus,
+                "distance": round(distance, 1),
+                "transported": transported,
+                "liters": liters,
+                "fuel_cost": fuel_cost,
+                "maintenance_cost": maintenance_cost,
+                "incidents": incidents,
+            }
+        )
+    return rows
+
+
+@login_required
+def monthly_report_view(request):
+    """Rapport mensuel d'activité par bus, en PDF ou Excel."""
+    blocked = _school_scope_guard(request)
+    if blocked:
+        return blocked
+    school = _user_school(request.user)
+    start, end, period_label = _month_bounds(request.GET.get("mois", ""))
+    rows = _monthly_report_rows(school, start, end)
+    totals = {
+        "distance": round(sum(r["distance"] for r in rows), 1),
+        "transported": sum(r["transported"] for r in rows),
+        "liters": sum((r["liters"] for r in rows), Decimal(0)),
+        "fuel_cost": sum((r["fuel_cost"] for r in rows), Decimal(0)),
+        "maintenance_cost": sum((r["maintenance_cost"] for r in rows), Decimal(0)),
+        "incidents": sum(r["incidents"] for r in rows),
+    }
+
+    if request.GET.get("format") == "xlsx":
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Rapport mensuel"
+        ws.append([f"Rapport mensuel — {school.name} — {period_label}"])
+        ws.append([])
+        ws.append(
+            [
+                "Bus", "Km parcourus", "Élèves transportés", "Litres", "Carburant ($)",
+                "Entretien ($)", "Incidents",
+            ]
+        )
+        for row in rows:
+            ws.append(
+                [
+                    row["bus"].code_bus,
+                    row["distance"],
+                    row["transported"],
+                    float(row["liters"]),
+                    float(row["fuel_cost"]),
+                    float(row["maintenance_cost"]),
+                    row["incidents"],
+                ]
+            )
+        ws.append(
+            [
+                "TOTAL", totals["distance"], totals["transported"], float(totals["liters"]),
+                float(totals["fuel_cost"]), float(totals["maintenance_cost"]), totals["incidents"],
+            ]
+        )
+        for column, width in zip("ABCDEFG", (16, 16, 22, 10, 16, 16, 12)):
+            ws.column_dimensions[column].width = width
+        filename = re.sub(r"[^\w\-]", "_", school.code_ecole) or "ecole"
+        response = HttpResponse(
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+        response["Content-Disposition"] = (
+            f'attachment; filename="rapport_mensuel_{filename}_{start.isoformat()}.xlsx"'
+        )
+        wb.save(response)
+        return response
+
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.styles import ParagraphStyle
+    from reportlab.lib.units import cm
+    from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buf,
+        pagesize=A4,
+        topMargin=2 * cm,
+        bottomMargin=2 * cm,
+        leftMargin=1.6 * cm,
+        rightMargin=1.6 * cm,
+        title=f"Rapport mensuel Scolaloop — {period_label}",
+    )
+    title = ParagraphStyle(
+        "Title", fontName="Helvetica-Bold", fontSize=18, spaceAfter=6, textColor=colors.HexColor("#2c3e50")
+    )
+    subtitle = ParagraphStyle(
+        "Sub", fontName="Helvetica", fontSize=10, spaceAfter=12,
+        textColor=colors.HexColor("#6c757d"),
+    )
+    body = ParagraphStyle("Body", fontName="Helvetica", fontSize=9, leading=13)
+    story = [
+        Paragraph("Rapport mensuel de transport scolaire", title),
+        Paragraph(f"{school.name} — {period_label}", subtitle),
+    ]
+    data = [["Bus", "Km", "Élèves", "Litres", "Carburant ($)", "Entretien ($)", "Incidents"]]
+    for row in rows:
+        data.append(
+            [
+                row["bus"].code_bus,
+                f"{row['distance']:.1f}",
+                str(row["transported"]),
+                f"{row['liters']:.2f}",
+                f"{row['fuel_cost']:.2f}",
+                f"{row['maintenance_cost']:.2f}",
+                str(row["incidents"]),
+            ]
+        )
+    data.append(
+        [
+            "TOTAL",
+            f"{totals['distance']:.1f}",
+            str(totals["transported"]),
+            f"{totals['liters']:.2f}",
+            f"{totals['fuel_cost']:.2f}",
+            f"{totals['maintenance_cost']:.2f}",
+            str(totals["incidents"]),
+        ]
+    )
+    table = Table(data, repeatRows=1)
+    table.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#2c3e50")),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
+                ("FONTSIZE", (0, 0), (-1, -1), 8),
+                ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#dee2e6")),
+                ("ALIGN", (1, 1), (-1, -1), "RIGHT"),
+                ("ROWBACKGROUNDS", (0, 1), (-1, -2), [colors.white, colors.HexColor("#f8f9fa")]),
+                ("TOPPADDING", (0, 0), (-1, -1), 5),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+            ]
+        )
+    )
+    story += [
+        table,
+        Spacer(1, 0.6 * cm),
+        Paragraph(
+            "Distance estimée à partir des points GPS enregistrés. "
+            "Coût carburant et entretien issus des saisies de l'école.",
+            body,
+        ),
+    ]
+    doc.build(story)
+    buf.seek(0)
+    response = HttpResponse(buf.getvalue(), content_type="application/pdf")
+    response["Content-Disposition"] = (
+        f'attachment; filename="rapport_mensuel_{start.isoformat()}.pdf"'
+    )
+    return response

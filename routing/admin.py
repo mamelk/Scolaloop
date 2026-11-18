@@ -8,6 +8,7 @@ from .models import (
     CommissionValidation,
     FuelRecord,
     GPSLog,
+    ParentNotification,
     Incident,
     PhysicalDemo,
     PilotContract,
@@ -18,6 +19,7 @@ from .models import (
     SalesRep,
     SalesSettings,
     Student,
+    StudentTrip,
     WeeklyReport,
 )
 
@@ -44,7 +46,10 @@ class StudentAdmin(admin.ModelAdmin):
 
 @admin.register(Bus)
 class BusAdmin(admin.ModelAdmin):
-    list_display = ("code_bus", "capacity", "driver_name", "driver_user", "is_in_service")
+    list_display = (
+        "code_bus", "capacity", "driver_name", "driver_user", "is_in_service",
+        "fuel_alert_threshold",
+    )
     list_filter = ("is_in_service",)
     search_fields = ("code_bus", "driver_name", "driver_user__username")
 
@@ -110,6 +115,20 @@ class BusMaintenanceAdmin(admin.ModelAdmin):
         "bus", "service_type", "cost", "date_effectuee", "prochaine_echeance_km_ou_date",
     )
     list_filter = ("service_type", "bus")
+
+
+@admin.register(StudentTrip)
+class StudentTripAdmin(admin.ModelAdmin):
+    list_display = ("student", "bus", "event", "timestamp")
+    list_filter = ("event", "bus")
+    search_fields = ("student__matricule", "student__nom", "bus__code_bus")
+
+
+@admin.register(ParentNotification)
+class ParentNotificationAdmin(admin.ModelAdmin):
+    list_display = ("student", "bus", "category", "created_at", "read_at")
+    list_filter = ("category", "bus")
+    search_fields = ("student__matricule", "message")
 
 
 @admin.register(FuelRecord)

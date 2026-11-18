@@ -4,48 +4,268 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#4f46e5">
     <title>Statistiques — Scolaloop</title>
     <link rel="icon" type="image/svg+xml" href="{% static 'images/logo.svg' %}">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <style>
-        :root { --primary: #2c3e50; --accent: #27ae60; --border: #dee2e6; }
+        :root {
+            --brand: #4f46e5; --brand-2: #2563eb; --accent: #10b981;
+            --bg: #f1f5f9; --surface: #ffffff; --border: #e2e8f0;
+            --text: #0f172a; --muted: #64748b;
+            --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.05);
+            --shadow-md: 0 10px 30px rgba(15, 23, 42, 0.08);
+        }
         * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { font-family: 'Segoe UI', system-ui, sans-serif; background: #f8f9fa; color: var(--primary); padding: 2rem; }
-        header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.2rem; max-width: 1200px; margin-left: auto; margin-right: auto; }
-        h1 { font-size: 1.3rem; }
-        .btn { background: #34495e; color: white; border: none; padding: 0.5rem 1rem; border-radius: 6px; text-decoration: none; font-size: 0.9rem; }
-        .stats-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 1rem; max-width: 1200px; margin: 0 auto; }
-        .card { background: white; border: 1px solid var(--border); border-radius: 8px; padding: 1rem; border-top: 4px solid var(--accent); }
-        .card h2 { font-size: 1rem; margin-bottom: 0.6rem; }
-        .stat-row { display: flex; justify-content: space-between; font-size: 0.85rem; padding: 0.25rem 0; }
-        .big { font-size: 1.5rem; font-weight: 700; }
-        .progress { background: #e9ecef; border-radius: 999px; height: 10px; overflow: hidden; margin-top: 0.6rem; }
-        .progress > div { background: var(--accent); height: 100%; }
-        .empty { color: #6c757d; font-style: italic; }
+        :focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+        body {
+            font-family: 'Poppins', 'Segoe UI', system-ui, sans-serif;
+            background: var(--bg); color: var(--text);
+            min-height: 100vh; padding-bottom: 2.5rem;
+            -webkit-font-smoothing: antialiased;
+        }
+        header {
+            position: sticky; top: 0; z-index: 100;
+            background: rgba(255, 255, 255, 0.96);
+            backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+            border-bottom: 1px solid var(--border);
+            padding: 0.7rem 1.4rem; min-height: 64px;
+            display: flex; align-items: center; justify-content: space-between;
+            gap: 0.9rem; flex-wrap: wrap;
+        }
+        .brand { display: flex; align-items: center; gap: 0.85rem; min-width: 0; }
+        .brand img { height: 2rem; width: auto; }
+        .brand h1 { font-size: 1rem; font-weight: 700; letter-spacing: -0.01em; }
+        .brand .sub { font-size: 0.72rem; color: var(--muted); margin-top: 0.1rem; }
+        .actions { display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap; }
+        .btn {
+            display: inline-flex; align-items: center; justify-content: center; gap: 0.35rem;
+            padding: 0.5rem 0.85rem; border-radius: 9px;
+            font-size: 0.78rem; font-weight: 600; line-height: 1.2;
+            text-decoration: none; border: 1px solid transparent; cursor: pointer;
+            font-family: inherit; white-space: nowrap;
+            transition: filter 0.15s, background 0.15s, border-color 0.15s;
+        }
+        .btn-primary {
+            background: linear-gradient(135deg, var(--brand), var(--brand-2));
+            color: white; box-shadow: 0 1px 2px rgba(79, 70, 229, 0.22);
+        }
+        .btn-primary:hover { filter: brightness(1.07); }
+        .btn-light { background: #fff; color: #334155; border-color: var(--border); }
+        .btn-light:hover { background: #f8fafc; border-color: #cbd5e1; }
+
+        main { max-width: 1240px; margin: 0 auto; padding: 1.4rem 1.4rem 0; }
+        .section-title {
+            font-size: 0.95rem; font-weight: 700; margin: 0.4rem 0 0.8rem;
+            display: flex; align-items: center; gap: 0.45rem;
+        }
+        .section-title .count {
+            font-size: 0.7rem; font-weight: 700; color: #4338ca;
+            background: #eef2ff; border: 1px solid #e0e7ff;
+            border-radius: 999px; padding: 0.1rem 0.5rem;
+        }
+
+        /* ---- Indicateurs de synthèse ---- */
+        .summary {
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 0.85rem; margin-bottom: 1.2rem;
+        }
+        .kpi {
+            position: relative; background: var(--surface); border: 1px solid var(--border);
+            border-radius: 14px; padding: 1rem 1.1rem 0.95rem 1.2rem;
+            box-shadow: var(--shadow-sm); overflow: hidden;
+            transition: transform 0.15s, box-shadow 0.15s;
+        }
+        .kpi::before {
+            content: ''; position: absolute; left: 0; top: 14px; bottom: 14px;
+            width: 3px; border-radius: 999px; background: var(--brand);
+        }
+        .kpi.fuel::before { background: #f59e0b; }
+        .kpi.incidents::before { background: #ef4444; }
+        .kpi:hover { transform: translateY(-2px); box-shadow: var(--shadow-md); }
+        .kpi .lbl {
+            font-size: 0.66rem; font-weight: 700; color: var(--muted);
+            text-transform: uppercase; letter-spacing: 0.05em;
+        }
+        .kpi .val { font-size: 1.8rem; font-weight: 800; letter-spacing: -0.02em; line-height: 1.2; margin-top: 0.12rem; }
+        .kpi .val small { font-size: 0.8rem; font-weight: 600; color: var(--muted); letter-spacing: 0; }
+        .kpi .meta { font-size: 0.72rem; color: var(--muted); margin-top: 0.15rem; }
+
+        /* ---- Graphiques ---- */
+        .charts {
+            display: grid; gap: 0.9rem; margin-bottom: 1.5rem;
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+        }
+        .card {
+            background: var(--surface); border: 1px solid var(--border);
+            border-radius: 14px; padding: 1.1rem 1.15rem; box-shadow: var(--shadow-sm);
+        }
+        .chart-card h2 { font-size: 0.86rem; font-weight: 700; margin-bottom: 0.1rem; }
+        .chart-total { font-size: 0.72rem; color: var(--muted); margin-bottom: 0.8rem; }
+        .chart-row {
+            display: grid; grid-template-columns: 84px 1fr 74px;
+            align-items: center; gap: 0.5rem; font-size: 0.72rem; margin: 0.32rem 0;
+        }
+        .chart-row .lbl { color: #475569; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .chart-row .track { background: #f1f5f9; border-radius: 999px; height: 9px; overflow: hidden; }
+        .chart-row .fill {
+            display: block; background: linear-gradient(90deg, var(--brand), #6366f1);
+            height: 100%; border-radius: 999px; min-width: 3px;
+            transition: width 0.4s ease;
+        }
+        .chart-card.fuel .fill { background: linear-gradient(90deg, #f59e0b, #fbbf24); }
+        .chart-card.incidents .fill { background: linear-gradient(90deg, #ef4444, #f87171); }
+        .chart-row .val { text-align: right; color: #334155; font-weight: 600; white-space: nowrap; }
+        .chart-card .empty { padding: 0.6rem 0; }
+
+        /* ---- Cartes par bus ---- */
+        .stats-grid {
+            display: grid; gap: 0.9rem;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+        }
+        .bus-card { transition: box-shadow 0.15s, transform 0.15s; }
+        .bus-card:hover { box-shadow: var(--shadow-md); transform: translateY(-2px); }
+        .bus-head {
+            display: flex; align-items: center; justify-content: space-between;
+            gap: 0.5rem; margin-bottom: 0.65rem;
+        }
+        .bus-head h2 { font-size: 0.9rem; font-weight: 700; }
+        .rate-pill {
+            font-size: 0.68rem; font-weight: 700; padding: 0.2rem 0.55rem;
+            border-radius: 999px; background: #ecfdf5; color: #047857; white-space: nowrap;
+        }
+        .rate-pill.low { background: #fff7ed; color: #c2410c; }
+        .stat-row {
+            display: flex; justify-content: space-between; align-items: baseline;
+            font-size: 0.8rem; padding: 0.32rem 0; border-bottom: 1px dashed #f1f5f9;
+        }
+        .stat-row:last-of-type { border-bottom: none; }
+        .stat-row span:first-child { color: var(--muted); }
+        .stat-row span:last-child { font-weight: 600; color: var(--text); }
+        .stat-row .big { font-size: 1.05rem; font-weight: 800; }
+        .progress { background: #f1f5f9; border-radius: 999px; height: 8px; overflow: hidden; margin-top: 0.55rem; }
+        .progress > div { background: linear-gradient(90deg, var(--brand), var(--accent)); height: 100%; border-radius: 999px; }
+
+        .empty { color: #94a3b8; font-size: 0.82rem; font-style: italic; }
+        .empty-box {
+            background: var(--surface); border: 1px dashed #cbd5e1;
+            border-radius: 14px; padding: 2rem 1rem; text-align: center; color: #94a3b8;
+        }
+
+        @media (max-width: 720px) {
+            header { padding: 0.65rem 0.9rem; }
+            .brand .sub { display: none; }
+            main { padding: 1rem 0.9rem 0; }
+            .actions { width: 100%; }
+            .actions .btn { flex: 1; }
+            .chart-row { grid-template-columns: 70px 1fr 62px; font-size: 0.68rem; }
+        }
+        @media print {
+            header, .actions { display: none; }
+            body { background: white; padding: 0; }
+            main { max-width: 100%; padding: 0; }
+            .card, .kpi { box-shadow: none; break-inside: avoid; }
+        }
     </style>
 </head>
 <body>
     <header>
-        <h1>📊 Statistiques par bus</h1>
-        <a class="btn" href="{% url 'routing:dashboard' %}">← Tableau de bord</a>
-    </header>
-    {% if stats %}
-    <div class="stats-grid">
-        {% for st in stats %}
-        <div class="card">
-            <h2>🚌 {{ st.bus.code_bus }}</h2>
-            <div class="stat-row"><span>Chauffeur</span><span>{{ st.bus.driver_name|default:"—" }}</span></div>
-            <div class="stat-row"><span>Capacité</span><span>{{ st.bus.capacity }}</span></div>
-            <div class="stat-row"><span>Routes</span><span>{{ st.routes|length }}</span></div>
-            <div class="stat-row"><span>Élèves assignés</span><span class="big">{{ st.assigned }}</span></div>
-            <div class="stat-row"><span>Pris</span><span>{{ st.taken }}</span></div>
-            <div class="stat-row"><span>Restants</span><span>{{ st.remaining }}</span></div>
-            <div class="stat-row"><span>Taux de ramassage</span><span>{{ st.pickup_rate }}%</span></div>
-            <div class="progress"><div style="width: {{ st.pickup_rate }}%;"></div></div>
+        <div class="brand">
+            <img src="{% static 'images/logo.svg' %}" alt="Scolaloop">
+            <div>
+                <h1>Statistiques &amp; rapports</h1>
+                <div class="sub">{% if school %}{{ school.name }} · {% endif %}Analyse des tournées et de la flotte</div>
+            </div>
         </div>
-        {% endfor %}
-    </div>
-    {% else %}
-    <p class="empty" style="text-align:center;">Aucun bus enregistré.</p>
-    {% endif %}
+        <div class="actions">
+            <a class="btn btn-primary" href="{% url 'routing:monthly_report' %}">📄 Rapport PDF</a>
+            <a class="btn btn-light" href="{% url 'routing:monthly_report' %}?format=xlsx">📥 Excel</a>
+            <a class="btn btn-light" href="{% url 'routing:dashboard' %}">← Tableau de bord</a>
+        </div>
+    </header>
+
+    <main>
+        <div class="summary">
+            <div class="kpi">
+                <div class="lbl">Prises en charge</div>
+                <div class="val">{{ charts.pickups.total }} <small>élèves</small></div>
+                <div class="meta">Sur les 14 derniers jours</div>
+            </div>
+            <div class="kpi fuel">
+                <div class="lbl">Carburant consommé</div>
+                <div class="val">{{ charts.fuel.total|floatformat:1 }} <small>litres</small></div>
+                <div class="meta">Sur les 6 derniers mois</div>
+            </div>
+            <div class="kpi incidents">
+                <div class="lbl">Incidents signalés</div>
+                <div class="val">{{ charts.incidents.total }}</div>
+                <div class="meta">Sur les 6 derniers mois</div>
+            </div>
+            <div class="kpi">
+                <div class="lbl">Bus suivis</div>
+                <div class="val">{{ stats|length }}</div>
+                <div class="meta">Flotte de l'établissement</div>
+            </div>
+        </div>
+
+        <div class="charts">
+            <div class="card chart-card">
+                <h2>{{ charts.pickups.title }}</h2>
+                <div class="chart-total">Total : {{ charts.pickups.total }} prises en charge</div>
+                {% for row in charts.pickups.rows %}
+                <div class="chart-row">
+                    <span class="lbl">{{ row.label }}</span>
+                    <span class="track"><span class="fill" style="width: {{ row.percent }}%;"></span></span>
+                    <span class="val">{{ row.value }}</span>
+                </div>
+                {% endfor %}
+            </div>
+            <div class="card chart-card fuel">
+                <h2>{{ charts.fuel.title }}</h2>
+                <div class="chart-total">Total : {{ charts.fuel.total }} litres</div>
+                {% for row in charts.fuel.rows %}
+                <div class="chart-row" title="Coût : {{ row.cost|floatformat:2 }} $">
+                    <span class="lbl">{{ row.label }}</span>
+                    <span class="track"><span class="fill" style="width: {{ row.percent }}%;"></span></span>
+                    <span class="val">{{ row.value|floatformat:1 }} L</span>
+                </div>
+                {% endfor %}
+            </div>
+            <div class="card chart-card incidents">
+                <h2>{{ charts.incidents.title }}</h2>
+                <div class="chart-total">Total : {{ charts.incidents.total }} incidents</div>
+                {% for row in charts.incidents.rows %}
+                <div class="chart-row">
+                    <span class="lbl">{{ row.label }}</span>
+                    <span class="track"><span class="fill" style="width: {{ row.percent }}%;"></span></span>
+                    <span class="val">{{ row.value }}</span>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+
+        <div class="section-title">🚌 Détail par bus <span class="count">{{ stats|length }}</span></div>
+        {% if stats %}
+        <div class="stats-grid">
+            {% for st in stats %}
+            <div class="card bus-card">
+                <div class="bus-head">
+                    <h2>{{ st.bus.code_bus }}</h2>
+                    <span class="rate-pill {% if st.pickup_rate < 50 %}low{% endif %}">{{ st.pickup_rate }}% ramassés</span>
+                </div>
+                <div class="stat-row"><span>Chauffeur</span><span>{{ st.bus.driver_name|default:"—" }}</span></div>
+                <div class="stat-row"><span>Capacité</span><span>{{ st.bus.capacity }} places</span></div>
+                <div class="stat-row"><span>Routes</span><span>{{ st.routes|length }}</span></div>
+                <div class="stat-row"><span>Élèves assignés</span><span class="big">{{ st.assigned }}</span></div>
+                <div class="stat-row"><span>Pris / restants</span><span>{{ st.taken }} / {{ st.remaining }}</span></div>
+                <div class="progress"><div style="width: {{ st.pickup_rate }}%;"></div></div>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="empty-box">Aucun bus enregistré pour le moment.</div>
+        {% endif %}
+    </main>
 </body>
 </html>

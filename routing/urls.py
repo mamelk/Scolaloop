@@ -13,6 +13,7 @@ urlpatterns = [
     path("sitemap.xml", views.sitemap_xml_view, name="sitemap_xml"),
     # PWA : Service Worker servi à la racine (portée "/")
     path("sw.js", views.pwa_service_worker, name="service_worker"),
+    path("transport-scolaire/", views.transport_scolaire_view, name="transport_scolaire"),
     path("apropos/", views.about_view, name="about"),
     path("manuel/", views.manual_view, name="manual"),
     path("manuel/pdf/", views.manual_pdf_view, name="manual_pdf"),
@@ -29,6 +30,8 @@ urlpatterns = [
     # Chauffeur
     path("driver/", views.driver_view, name="driver"),
     path("driver/pickup/<int:pk>/", views.driver_pickup_student, name="driver_pickup"),
+    path("driver/dropoff/<int:pk>/", views.driver_dropoff_student, name="driver_dropoff"),
+    path("driver/carburant/", views.driver_fuel_add, name="driver_fuel_add"),
     path("driver/position/", views.driver_update_position, name="driver_position"),
     path("driver/incident/", views.driver_report_incident, name="driver_incident"),
     path("api/driver/route/", views.driver_route_api, name="driver_route_api"),
@@ -50,6 +53,7 @@ urlpatterns = [
     # Carburant (école)
     path("dashboard/carburant/ajouter/", views.fuel_add, name="fuel_add"),
     path("dashboard/carburant/<int:pk>/supprimer/", views.fuel_delete, name="fuel_delete"),
+    path("dashboard/carburant/export/", views.export_fuel, name="export_fuel"),
     # Replay GPS (école)
     path("dashboard/replay/<int:bus_id>/", views.replay_view, name="replay"),
     path("statistiques/", views.statistics_view, name="statistics"),
@@ -72,4 +76,6 @@ urlpatterns = [
     path("export/eleves-par-bus/", views.export_students_by_bus, name="export_students_by_bus"),
     path("export/eleves-bus/<int:pk>/", views.export_bus_students, name="export_bus_students"),
     path("export/feuille-route/<int:pk>/", views.route_sheet_pdf, name="route_sheet_pdf"),
+    # Rapport mensuel PDF / Excel
+    path("rapport-mensuel/", views.monthly_report_view, name="monthly_report"),
 ]

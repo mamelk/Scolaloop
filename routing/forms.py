@@ -38,7 +38,7 @@ class BusForm(forms.ModelForm):
 
     class Meta:
         model = Bus
-        fields = ["code_bus", "capacity", "driver_name", "is_in_service"]
+        fields = ["code_bus", "capacity", "driver_name", "is_in_service", "fuel_alert_threshold"]
 
 
 class LoginForm(forms.Form):

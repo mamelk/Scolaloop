@@ -4,6 +4,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+    <meta name="theme-color" content="#1e293b">
     <title>Chauffeur — {{ bus.code_bus }}</title>
     {% include 'routing/_pwa_head.html' %}
     <link rel="icon" type="image/svg+xml" href="{% static 'images/logo.svg' %}">
@@ -170,6 +171,45 @@
         @media (max-width: 340px) {
             .stats { grid-template-columns: repeat(2, 1fr); }
         }
+
+        /* ---- Confort d'usage terrain ---- */
+        .topbar {
+            position: sticky; top: 0; z-index: 1000;
+            background: rgba(30, 41, 59, 0.97);
+            backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+            box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+            padding-top: calc(0.7rem + env(safe-area-inset-top, 0px));
+        }
+        .topbar .title { display: flex; align-items: center; gap: 0.5rem; }
+        .topbar a {
+            padding: 0.4rem 0.7rem; border: 1px solid #334155; border-radius: 8px;
+            color: #fca5a5; font-weight: 600;
+        }
+        .topbar a:hover { background: #0f172a; }
+        .stats { gap: 0.6rem; }
+        .stat {
+            border-radius: 14px; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+            transition: border-color 0.15s;
+        }
+        .stat .num { letter-spacing: -0.02em; }
+        #map { width: 100%; }
+        .incident-panel {
+            border-radius: 14px; margin: 0.7rem 0.9rem;
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+        }
+        .incident-btn { min-height: 3.6rem; }
+        .voice-btn {
+            border-radius: 12px; min-height: 3.5rem;
+            background: #1e293b; transition: border-color 0.15s, color 0.15s;
+        }
+        .voice-btn:active { transform: scale(0.98); }
+        .modal-box { border-radius: 22px; }
+        .big-green { min-height: 4.2rem; font-size: 1.25rem; }
+        @media (max-width: 480px) {
+            .topbar { padding-left: 0.8rem; padding-right: 0.8rem; }
+            .incident-panel { margin-left: 0.8rem; margin-right: 0.8rem; }
+            .voice-btn { margin-left: 0.8rem; margin-right: 0.8rem; }
+        }
     </style>
 </head>
 <body>
@@ -177,6 +217,15 @@
         <span class="title"><img src="{% static 'images/logo.svg' %}" alt="Scolaloop Logo" class="h-10 w-auto logo-white" style="height:1.6rem;"> {{ bus.code_bus }} — {{ request.user.username }}</span>
         <a href="{% url 'routing:logout' %}">Déconnexion</a>
     </header>
+
+    {% if messages %}
+    {% for message in messages %}
+    <div style="margin:0.5rem 0.8rem 0; padding:0.6rem 0.9rem; border-radius:8px; font-size:0.85rem;
+        {% if message.tags == 'error' %}background:#7f1d1d; color:#fee2e2;{% else %}background:#14532d; color:#dcfce7;{% endif %}">
+        {{ message }}
+    </div>
+    {% endfor %}
+    {% endif %}
 
     <div class="stats">
         <div class="stat">
@@ -233,6 +282,57 @@
         </div>
         <div id="incident-msg" class="incident-msg"></div>
     </div>
+
+    {% if taken_students %}
+    <div class="incident-panel" style="border-left-color: var(--accent);">
+        <div class="incident-title">🎒 Élèves à bord</div>
+        {% for s in taken_students %}
+        <form method="post" action="{% url 'routing:driver_dropoff' s.pk %}"
+              style="display:flex; align-items:center; justify-content:space-between; gap:0.6rem; margin-top:0.5rem;">
+            {% csrf_token %}
+            <span style="font-size:0.88rem;">{{ s.prenom }} {{ s.nom }} <span style="opacity:0.7;">({{ s.matricule }})</span></span>
+            <button type="submit" style="padding:0.45rem 0.8rem; border:none; border-radius:8px; background:var(--accent); color:#052e16; font-weight:700;">🏫 Déposer</button>
+        </form>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    <details class="incident-panel" style="border-left-color:#60a5fa;">
+        <summary class="incident-title" style="cursor:pointer;">⛽ Enregistrer un plein</summary>
+        <form method="post" action="{% url 'routing:driver_fuel_add' %}"
+              style="display:grid; grid-template-columns:repeat(auto-fit, minmax(130px, 1fr)); gap:0.5rem; margin-top:0.6rem;">
+            {% csrf_token %}
+            <label style="font-size:0.75rem; opacity:0.85;">Date
+                <input type="date" name="date_plein" value="{% now 'Y-m-d' %}" style="width:100%; padding:0.5rem; border-radius:8px; border:1px solid #334155; background:#0f172a; color:var(--text);">
+            </label>
+            <label style="font-size:0.75rem; opacity:0.85;">Litres
+                <input type="number" name="liters" step="0.01" min="0.01" required style="width:100%; padding:0.5rem; border-radius:8px; border:1px solid #334155; background:#0f172a; color:var(--text);">
+            </label>
+            <label style="font-size:0.75rem; opacity:0.85;">Prix/L ($)
+                <input type="number" name="price_per_liter" step="0.01" min="0" value="0" style="width:100%; padding:0.5rem; border-radius:8px; border:1px solid #334155; background:#0f172a; color:var(--text);">
+            </label>
+            <label style="font-size:0.75rem; opacity:0.85;">Kilométrage
+                <input type="number" name="odometer_km" min="0" step="1" style="width:100%; padding:0.5rem; border-radius:8px; border:1px solid #334155; background:#0f172a; color:var(--text);">
+            </label>
+            <label style="font-size:0.75rem; opacity:0.85;">Carburant
+                <select name="fuel_type" style="width:100%; padding:0.5rem; border-radius:8px; border:1px solid #334155; background:#0f172a; color:var(--text);">
+                    {% for t in fuel_types %}<option value="{{ t }}">{{ t }}</option>{% endfor %}
+                </select>
+            </label>
+            <label style="font-size:0.75rem; opacity:0.85;">Station
+                <input type="text" name="station" style="width:100%; padding:0.5rem; border-radius:8px; border:1px solid #334155; background:#0f172a; color:var(--text);">
+            </label>
+            <button type="submit" style="grid-column:1 / -1; padding:0.65rem; border:none; border-radius:10px; background:#1d4ed8; color:white; font-weight:700;">➕ Enregistrer le plein</button>
+        </form>
+        {% if recent_fuel %}
+        <div style="margin-top:0.6rem; font-size:0.78rem; opacity:0.85;">
+            <strong>Derniers pleins :</strong>
+            {% for f in recent_fuel %}
+                {{ f.date_plein|date:"d/m" }} — {{ f.liters|floatformat:1 }} L ({{ f.total_cost|floatformat:2 }} $){% if not forloop.last %} · {% endif %}
+            {% endfor %}
+        </div>
+        {% endif %}
+    </details>
 
     <!-- Modale d'embarquement -->
     <div id="pickup-modal" class="modal">

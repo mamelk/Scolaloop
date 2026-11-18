@@ -4,9 +4,9 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Scolaloop — Système de Transport Scolaire Intelligent | ESTECH</title>
-    <meta name="description" content="Scolaloop optimise les trajets de bus scolaires en temps réel : tournées en boucle fermée, itinéraires routiers OSRM, suivi GPS et gestion des élèves. Développé par ESTECH.">
-    <meta name="keywords" content="transport scolaire, bus scolaire, tournées bus, suivi GPS, optimisation tournées, application scolaire, ESTECH, Scolaloop">
+    <title>Scolaloop — Logiciel de Gestion de Transport Scolaire | Bus & GPS | ESTECH</title>
+    <meta name="description" content="Logiciel de gestion de transport scolaire : optimisation des tournées de bus, suivi GPS en temps réel, notifications parents, suivi du carburant et de l'entretien. Solution éditée par ESTECH.">
+    <meta name="keywords" content="transport scolaire, logiciel transport scolaire, gestion bus scolaire, application bus scolaire, suivi GPS, tournées scolaires, transport élèves, logiciel école, RDC, Kinshasa, Lubumbashi, ESTECH, Scolaloop">
     <meta name="author" content="ESTECH">
     <meta name="robots" content="index, follow">
     {% if GOOGLE_SITE_VERIFICATION %}
@@ -15,15 +15,15 @@
     <!-- Open Graph / Facebook -->
     <meta property="og:type" content="website">
     <meta property="og:url" content="{{ SITE_URL }}/">
-    <meta property="og:title" content="Scolaloop — Système de Transport Scolaire Intelligent">
-    <meta property="og:description" content="Optimisez les trajets de bus scolaires en temps réel : tournées en boucle fermée, itinéraires routiers OSRM, suivi GPS et gestion des élèves.">
+    <meta property="og:title" content="Scolaloop — Logiciel de gestion du transport scolaire">
+    <meta property="og:description" content="Optimisez les tournées de bus scolaires en temps réel : suivi GPS, notifications parents, carburant et entretien de la flotte.">
     <meta property="og:image" content="{% static 'images/logo.svg' %}">
     <meta property="og:locale" content="fr_FR">
     <meta property="og:site_name" content="Scolaloop">
     <!-- Twitter Card -->
     <meta name="twitter:card" content="summary_large_image">
-    <meta name="twitter:title" content="Scolaloop — Système de Transport Scolaire Intelligent">
-    <meta name="twitter:description" content="Optimisez les trajets de bus scolaires en temps réel : tournées en boucle fermée, itinéraires routiers OSRM, suivi GPS et gestion des élèves.">
+    <meta name="twitter:title" content="Scolaloop — Logiciel de gestion du transport scolaire">
+    <meta name="twitter:description" content="Planification des tournées, suivi GPS, notifications parents, carburant et entretien : un seul logiciel pour le transport scolaire.">
     <meta name="twitter:image" content="{% static 'images/logo.svg' %}">
     <!-- Canonical -->
     <link rel="canonical" href="{{ SITE_URL }}/">
@@ -85,6 +85,36 @@
         .benefit i { color: var(--accent); font-size: 1.2rem; margin-top: 0.15rem; }
         .benefit strong { display: block; margin-bottom: 0.2rem; }
         .benefit p { font-size: 0.88rem; color: #5d6d7e; }
+        .preview-grid {
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+            gap: 1.1rem; margin-bottom: 0.8rem;
+        }
+        .preview-card {
+            border: 1px solid #dee2e6; border-radius: 12px; overflow: hidden;
+            background: #0f172a; color: #f1f5f9; box-shadow: 0 10px 24px rgba(15, 23, 42, 0.12);
+        }
+        .preview-bar {
+            padding: 0.55rem 0.8rem; font-size: 0.8rem; font-weight: 700;
+            background: #1e293b; border-bottom: 1px solid #334155;
+        }
+        .mini-map { position: relative; height: 130px; background: #dfe8d8; }
+        .mini-map .road { position: absolute; background: #fff; border-radius: 2px; }
+        .mini-map .dot {
+            position: absolute; width: 14px; height: 14px; border-radius: 50%;
+            border: 2px solid white; box-shadow: 0 1px 4px rgba(0,0,0,0.3);
+        }
+        .mini-row { display: flex; justify-content: space-between; padding: 0.38rem 0.8rem; font-size: 0.78rem; color: #cbd5e1; }
+        .mini-row strong { color: #fff; }
+        .mini-bars { padding: 0.6rem 0.8rem 0.9rem; display: grid; gap: 0.4rem; }
+        .mini-bar { height: 9px; background: #334155; border-radius: 999px; overflow: hidden; }
+        .mini-bar span { display: block; height: 100%; background: var(--accent); border-radius: 999px; }
+        .preview-note { text-align: center; color: #6c757d; font-size: 0.78rem; }
+        .faq-item {
+            background: var(--light); border: 1px solid #dee2e6; border-radius: 10px;
+            padding: 0.8rem 1rem; margin-bottom: 0.6rem; text-align: left;
+        }
+        .faq-item summary { cursor: pointer; font-weight: 700; color: var(--primary); }
+        .faq-item p { margin-top: 0.5rem; color: #475569; font-size: 0.92rem; }
         footer { text-align: center; padding: 1.5rem; font-size: 0.8rem; color: #6c757d; }
 
         /* ---- Adaptation téléphone / tablette ---- */
@@ -108,6 +138,7 @@
     <nav class="nav">
         <span class="logo"><img src="{% static 'images/logo.svg' %}" alt="Scolaloop Logo" class="h-10 w-auto logo-white"></span>
         <span class="user" style="display:flex; align-items:center; gap:1rem; flex-wrap:wrap;">
+            <a href="{% url 'routing:transport_scolaire' %}" style="color:#f1c40f;">Transport scolaire</a>
             <a href="{% url 'routing:about' %}" style="color:#f1c40f;">À propos</a>
             <a href="{% url 'routing:manual' %}" style="color:#f1c40f;">Manuel</a>
             {% if user.is_authenticated %}
@@ -120,11 +151,11 @@
 
     <header class="hero">
         <div class="brand"><img src="{% static 'images/logo.svg' %}" alt="Scolaloop Logo" class="h-10 w-auto logo-white"></div>
-        <h1>Bienvenue sur le Système de Transport Scolaire</h1>
+        <h1>Logiciel de gestion du transport scolaire</h1>
         <p>
-            Optimisez les trajets de bus scolaires en temps réel : tournées en boucle fermée,
-            ordre des arrêts calculé par OR-Tools, itinéraires routiers réels (OSRM) et suivi
-            des élèves pris en charge — le tout sur une carte interactive.
+            Optimisez les tournées de bus scolaires en temps réel : itinéraires routiers réels,
+            suivi GPS des élèves, notifications aux parents, gestion du carburant et de
+            l'entretien — le tout sur une carte interactive.
         </p>
         {% if user.is_authenticated %}
         <a class="btn" href="{% url 'routing:dashboard' %}">Accéder au Tableau de Bord →</a>
@@ -157,6 +188,50 @@
                 <p>Importez les élèves et les bus en masse depuis des fichiers .xlsx en quelques secondes.</p>
             </div>
         </div>
+    </section>
+
+    <section class="section">
+        <h2>Coup d'œil sur l'application</h2>
+        <div class="preview-grid">
+            <div class="preview-card">
+                <div class="preview-bar">🗺️ Carte & suivi en direct</div>
+                <div class="mini-map">
+                    <span class="road" style="left:18%; top:0; width:6px; height:100%;"></span>
+                    <span class="road" style="left:0; top:44%; width:100%; height:6px;"></span>
+                    <span class="dot" style="left:20%; top:38%; background:#16a085;"></span>
+                    <span class="dot" style="left:44%; top:60%; background:#f1c40f; width:18px; height:18px;"></span>
+                    <span class="dot" style="left:68%; top:30%; background:#3b82f6;"></span>
+                    <span class="dot" style="left:78%; top:66%; background:#3b82f6;"></span>
+                </div>
+                <div class="mini-row"><span>Bus en route</span><strong>5</strong></div>
+                <div class="mini-row"><span>Taux de ramassage</span><strong>86 %</strong></div>
+                <div class="mini-row"><span>Retards</span><strong>1</strong></div>
+            </div>
+            <div class="preview-card">
+                <div class="preview-bar">⛽ Carburant par bus</div>
+                <div class="mini-row" style="margin-top:0.5rem;"><span>Bus 01 — coût du mois</span><strong>184,20 $</strong></div>
+                <div class="mini-row"><span>Consommation</span><strong>27,4 L/100 km</strong></div>
+                <div class="mini-bars">
+                    <div class="mini-bar"><span style="width:82%; background:#ef4444;"></span></div>
+                    <div class="mini-bar"><span style="width:54%;"></span></div>
+                    <div class="mini-bar"><span style="width:38%;"></span></div>
+                </div>
+                <div class="mini-row"><span>⚠️ Alerte de surconsommation</span><strong>1 bus</strong></div>
+            </div>
+            <div class="preview-card">
+                <div class="preview-bar">📊 Statistiques</div>
+                <div class="mini-row" style="margin-top:0.5rem;"><span>Prises en charge (14 j)</span><strong>214</strong></div>
+                <div class="mini-bars">
+                    <div class="mini-bar"><span style="width:72%;"></span></div>
+                    <div class="mini-bar"><span style="width:48%;"></span></div>
+                    <div class="mini-bar"><span style="width:88%;"></span></div>
+                    <div class="mini-bar"><span style="width:34%;"></span></div>
+                    <div class="mini-bar"><span style="width:60%;"></span></div>
+                </div>
+                <div class="mini-row"><span>Incidents du mois</span><strong>3</strong></div>
+            </div>
+        </div>
+        <p class="preview-note">Aperçu de l'interface — les données affichées sont fictives.</p>
     </section>
 
     <section class="section benefits">
@@ -193,6 +268,26 @@
         </div>
     </section>
 
+    <section class="section" id="faq">
+        <h2>Questions fréquentes</h2>
+        <details class="faq-item">
+            <summary>Qu'est-ce que Scolaloop ?</summary>
+            <p>Scolaloop est un logiciel de gestion du transport scolaire : il planifie les tournées de bus, suit les véhicules en temps réel et relie l'école aux parents.</p>
+        </details>
+        <details class="faq-item">
+            <summary>Comment les parents suivent-ils le bus ?</summary>
+            <p>Chaque parent se connecte avec le matricule de son enfant et suit le bus en direct, reçoit les notifications d'approche et consulte l'historique des trajets.</p>
+        </details>
+        <details class="faq-item">
+            <summary>Le suivi du carburant est-il inclus ?</summary>
+            <p>Oui : saisie des pleins, coût, consommation moyenne par bus et alerte de surconsommation, avec export Excel.</p>
+        </details>
+        <details class="faq-item">
+            <summary>Comment démarrer ?</summary>
+            <p>Inscrivez votre école gratuitement, importez vos élèves et bus, puis laissez l'affectation automatique faire le reste.</p>
+        </details>
+    </section>
+
     <section class="section" style="text-align:center; padding-bottom: 3.5rem;">
         {% if user.is_authenticated %}
         <a class="btn" href="{% url 'routing:dashboard' %}">Accéder au Tableau de Bord →</a>
@@ -201,7 +296,7 @@
         {% endif %}
     </section>
 
-    <footer>© 2026 Scolaloop — Système de Transport Scolaire Intelligent · <a href="{% url 'routing:about' %}" style="color:inherit;">À propos</a> · Développé par <strong>ESTECH</strong></footer>
+    <footer>© 2026 Scolaloop — Système de Transport Scolaire Intelligent · <a href="{% url 'routing:transport_scolaire' %}" style="color:inherit;">Transport scolaire</a> · <a href="{% url 'routing:about' %}" style="color:inherit;">À propos</a> · Développé par <strong>ESTECH</strong></footer>
 
     <!-- Structured Data JSON-LD pour Google -->
     <script type="application/ld+json">
@@ -230,6 +325,34 @@
             "Communication parents-école",
             "Gestion des absences",
             "Alertes de sécurité routière"
+        ]
+    }
+    </script>
+    <script type="application/ld+json">
+    {
+        "@context": "https://schema.org",
+        "@type": "FAQPage",
+        "mainEntity": [
+            {
+                "@type": "Question",
+                "name": "Qu'est-ce que Scolaloop ?",
+                "acceptedAnswer": {"@type": "Answer", "text": "Scolaloop est un logiciel de gestion du transport scolaire : planification des tournées de bus, suivi GPS en temps réel et communication entre l'école et les parents."}
+            },
+            {
+                "@type": "Question",
+                "name": "Comment les parents suivent-ils le bus ?",
+                "acceptedAnswer": {"@type": "Answer", "text": "Chaque parent se connecte avec le matricule de son enfant et suit le bus en direct, reçoit les notifications d'approche et consulte l'historique des trajets."}
+            },
+            {
+                "@type": "Question",
+                "name": "Le suivi du carburant est-il inclus ?",
+                "acceptedAnswer": {"@type": "Answer", "text": "Oui : saisie des pleins, coût, consommation moyenne par bus et alerte de surconsommation, avec export Excel."}
+            },
+            {
+                "@type": "Question",
+                "name": "Comment démarrer ?",
+                "acceptedAnswer": {"@type": "Answer", "text": "Inscrivez votre école gratuitement, importez vos élèves et bus, puis laissez l'affectation automatique faire le reste."}
+            }
         ]
     }
     </script>

@@ -4,11 +4,14 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+    <meta name="theme-color" content="#4f46e5">
     <title>Suivi — {{ student.prenom }}</title>
     {% include 'routing/_pwa_head.html' %}
     <link rel="icon" type="image/svg+xml" href="{% static 'images/logo.svg' %}">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/leaflet-polylinedecorator@1.6.0/dist/leaflet.polylineDecorator.min.js"></script>
     <script src="{% static 'js/map_tiles.js' %}"></script>
@@ -100,6 +103,26 @@
         .msg { padding: 0.7rem 1rem; font-size: 0.9rem; font-weight: 600; }
         .msg.success { background: #d4edda; color: #155724; border-bottom: 2px solid #c3e6cb; }
         .msg.warning { background: #fff3cd; color: #664d03; border-bottom: 2px solid #f0b429; }
+        .info-section {
+            margin: 0.8rem 1.2rem; background: white; border-radius: 16px; padding: 1rem 1.1rem;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+        }
+        .info-section h2 { font-size: 1rem; margin: 0 0 0.6rem; display: flex; align-items: center; gap: 0.5rem; }
+        .notif-count {
+            background: #ef4444; color: white; border-radius: 999px; font-size: 0.72rem;
+            padding: 0.1rem 0.5rem; font-weight: 700;
+        }
+        .notif-list, .trip-list { list-style: none; margin: 0; padding: 0; }
+        .notif-item, .trip-list li {
+            display: flex; justify-content: space-between; align-items: baseline; gap: 0.7rem;
+            padding: 0.5rem 0; border-bottom: 1px solid #f1f5f9; font-size: 0.86rem;
+        }
+        .notif-item:last-child, .trip-list li:last-child { border-bottom: none; }
+        .notif-item .notif-time, .trip-list li > span:last-child { color: #94a3b8; font-size: 0.76rem; white-space: nowrap; }
+        .notif-item.approach .notif-msg { color: #b45309; font-weight: 600; }
+        .notif-item.pickup .notif-msg { color: #15803d; font-weight: 600; }
+        .notif-item.dropoff .notif-msg { color: #1d4ed8; font-weight: 600; }
+        .info-section .empty { color: #94a3b8; font-size: 0.85rem; font-style: italic; }
         /* ---- Adaptation téléphone / tablette ---- */
         @media (max-width: 560px) {
             header { padding: 0.85rem 0.9rem; gap: 0.6rem; }
@@ -111,6 +134,47 @@
             .distance-card { margin: 0.8rem; padding: 1rem; }
             .distance-value { font-size: 2.4rem; }
             .absence-card, .absence-banner { margin: 0.8rem; }
+        }
+
+        /* ---- Polissage UI : cohérence avec le tableau de bord ---- */
+        :root { --blue: #4f46e5; }
+        body {
+            font-family: 'Poppins', 'Segoe UI', system-ui, sans-serif;
+            background: #f1f5f9; -webkit-font-smoothing: antialiased;
+        }
+        header {
+            position: sticky; top: 0; z-index: 1000;
+            background: linear-gradient(135deg, #4f46e5, #2563eb);
+            box-shadow: 0 4px 16px rgba(37, 99, 235, 0.22);
+            padding: 0.8rem 1.2rem;
+        }
+        header a { color: #e0e7ff; font-weight: 600; }
+        header a:hover { color: #ffffff; }
+        .distance-card {
+            border: 1px solid #e2e8f0; border-radius: 18px;
+            box-shadow: 0 6px 20px rgba(15, 23, 42, 0.07);
+        }
+        .distance-value { color: #4f46e5; }
+        .distance-value .unit { color: #94a3b8; }
+        #map {
+            width: auto; margin: 0 1.2rem; border-radius: 18px;
+            box-shadow: 0 6px 20px rgba(15, 23, 42, 0.1);
+            border: 1px solid #e2e8f0;
+        }
+        .sound-btn {
+            border-radius: 12px; min-height: 46px; padding: 0.75rem 1.6rem;
+            box-shadow: 0 2px 8px rgba(15, 23, 42, 0.18);
+        }
+        .absence-card, .info-section {
+            border: 1px solid #e2e8f0; box-shadow: 0 4px 16px rgba(15, 23, 42, 0.05);
+        }
+        .info-section h2 { font-size: 0.95rem; }
+        .notif-list, .trip-list { max-height: 340px; overflow-y: auto; }
+        .notif-item, .trip-list li { padding: 0.6rem 0; }
+        .absence-btn { min-height: 44px; }
+        @media (max-width: 560px) {
+            #map { margin: 0 0.8rem; height: 36vh; }
+            header { padding: 0.75rem 0.9rem; }
         }
     </style>
 </head>
@@ -171,6 +235,38 @@
 
     <button class="sound-btn" id="sound-toggle">🔇 Activer le son</button>
     <div class="note" id="bus-note">Position du bus : en attente du signal GPS du chauffeur…</div>
+
+    <section class="info-section">
+        <h2>🔔 Notifications {% if unread_notifications %}<span class="notif-count">{{ unread_notifications }}</span>{% endif %}</h2>
+        {% if notifications %}
+        <ul class="notif-list">
+            {% for n in notifications %}
+            <li class="notif-item {{ n.category }}">
+                <span class="notif-msg">{{ n.message }}</span>
+                <span class="notif-time">{{ n.created_at|date:"d/m H:i" }}</span>
+            </li>
+            {% endfor %}
+        </ul>
+        {% else %}
+        <p class="empty">Aucune notification pour le moment.</p>
+        {% endif %}
+    </section>
+
+    <section class="info-section">
+        <h2>🧭 Historique des trajets</h2>
+        {% if trips %}
+        <ul class="trip-list">
+            {% for t in trips %}
+            <li>
+                <span>{% if t.event == 'pickup' %}🟢 Prise en charge{% else %}🏫 Dépose{% endif %}{% if t.bus %} · Bus {{ t.bus.code_bus }}{% endif %}</span>
+                <span>{{ t.timestamp|date:"d/m/Y H:i" }}</span>
+            </li>
+            {% endfor %}
+        </ul>
+        {% else %}
+        <p class="empty">Aucun trajet enregistré pour le moment.</p>
+        {% endif %}
+    </section>
 
     {{ student_data|json_script:"student-data" }}
 

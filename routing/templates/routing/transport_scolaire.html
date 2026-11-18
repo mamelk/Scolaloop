@@ -1,0 +1,226 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Transport Scolaire : Logiciel de Gestion de Bus Scolaires — Scolaloop</title>
+    <meta name="description" content="Logiciel de transport scolaire pour écoles : planification des tournées de bus, suivi GPS des élèves, alertes parents, suivi du carburant et de l'entretien. Démo et inscription gratuite avec Scolaloop.">
+    <meta name="keywords" content="transport scolaire, logiciel transport scolaire, gestion bus scolaire, application bus scolaire, suivi bus scolaire GPS, tournées scolaires, transport élèves, logiciel école RDC, Kinshasa, Lubumbashi, Scolaloop, ESTECH">
+    <meta name="author" content="ESTECH">
+    <meta name="robots" content="index, follow">
+    <link rel="canonical" href="{{ SITE_URL }}/transport-scolaire/">
+    {% if GOOGLE_SITE_VERIFICATION %}
+    <meta name="google-site-verification" content="{{ GOOGLE_SITE_VERIFICATION }}">
+    {% endif %}
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="{{ SITE_URL }}/transport-scolaire/">
+    <meta property="og:title" content="Transport scolaire : logiciel de gestion des bus scolaires — Scolaloop">
+    <meta property="og:description" content="Planifiez les tournées, suivez les bus en temps réel et rassurez les parents avec un seul logiciel de transport scolaire.">
+    <meta property="og:image" content="{{ SITE_URL }}{% static 'images/logo.svg' %}">
+    <meta property="og:locale" content="fr_FR">
+    <meta property="og:site_name" content="Scolaloop">
+    <meta name="twitter:card" content="summary_large_image">
+    <link rel="icon" type="image/svg+xml" href="{% static 'images/logo.svg' %}">
+    <style>
+        :root { --primary: #2c3e50; --accent: #27ae60; --accent-dark: #1e8449; --light: #f8f9fa; }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: 'Segoe UI', system-ui, sans-serif; color: var(--primary); background: #fff; line-height: 1.6; }
+        .nav {
+            display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.6rem;
+            padding: 1rem 2rem; background: var(--primary); color: #fff;
+        }
+        .nav a { color: #f1c40f; text-decoration: none; margin-left: 1rem; }
+        .nav .brand { color: #fff; font-weight: 800; margin: 0; letter-spacing: 0.02em; }
+        .hero { padding: 3.5rem 1.5rem; text-align: center; color: #fff;
+            background: linear-gradient(135deg, #2c3e50 0%, #1a5276 60%, #1e8449 100%); }
+        .hero h1 { font-size: clamp(1.6rem, 4vw, 2.4rem); max-width: 900px; margin: 0 auto 0.8rem; }
+        .hero p { max-width: 760px; margin: 0 auto 1.6rem; opacity: 0.93; }
+        .btn { display: inline-block; background: var(--accent); color: #fff; padding: 0.8rem 1.8rem;
+            border-radius: 999px; font-weight: 700; text-decoration: none; }
+        .btn:hover { background: var(--accent-dark); }
+        main { max-width: 1050px; margin: 0 auto; padding: 0 1.5rem; }
+        section { padding: 2.6rem 0; border-bottom: 1px solid #e9ecef; }
+        h2 { font-size: 1.5rem; margin-bottom: 1rem; }
+        h3 { font-size: 1.05rem; margin-bottom: 0.4rem; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1rem; }
+        .card { background: var(--light); border: 1px solid #dee2e6; border-radius: 12px; padding: 1.2rem; }
+        .steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; }
+        .step { border-left: 4px solid var(--accent); padding: 0.2rem 0 0.2rem 0.9rem; }
+        .step strong { display: block; margin-bottom: 0.2rem; }
+        .faq details { border: 1px solid #dee2e6; border-radius: 10px; padding: 0.8rem 1rem; margin-bottom: 0.6rem; background: #fff; }
+        .faq summary { cursor: pointer; font-weight: 700; }
+        .faq p { margin-top: 0.5rem; color: #475569; }
+        .cta { text-align: center; padding-bottom: 3rem; border-bottom: none; }
+        footer { text-align: center; padding: 1.5rem; font-size: 0.82rem; color: #6c757d; }
+        footer a { color: inherit; }
+    </style>
+</head>
+<body>
+    <nav class="nav">
+        <a class="brand" href="{% url 'routing:home' %}">Scolaloop — Transport scolaire</a>
+        <span>
+            <a href="{% url 'routing:home' %}">Accueil</a>
+            <a href="{% url 'routing:manual' %}">Manuel</a>
+            <a href="{% url 'routing:login' %}">Se connecter</a>
+        </span>
+    </nav>
+
+    <header class="hero">
+        <h1>Logiciel de transport scolaire : gérez vos bus, vos tournées et la sécurité des élèves</h1>
+        <p>
+            Scolaloop aide les écoles à planifier les tournées de bus, suivre chaque véhicule en temps réel,
+            prévenir les parents et maîtriser le carburant comme l'entretien de la flotte — depuis un simple navigateur.
+        </p>
+        <a class="btn" href="{% url 'routing:register_school' %}">Inscrire mon école gratuitement</a>
+    </header>
+
+    <main>
+        <section>
+            <h2>Un seul outil pour tout le transport scolaire</h2>
+            <div class="grid">
+                <article class="card">
+                    <h3>Planification automatique des tournées</h3>
+                    <p>Le moteur d'optimisation (OR-Tools) répartit les élèves selon la capacité des bus et l'ordre des arrêts, avec des itinéraires routiers réels.</p>
+                </article>
+                <article class="card">
+                    <h3>Suivi GPS en temps réel</h3>
+                    <p>L'école et les parents voient la position du bus, la vitesse, les retards et l'état du ramassage sur une carte interactive.</p>
+                </article>
+                <article class="card">
+                    <h3>Communication avec les parents</h3>
+                    <p>Notifications d'approche, prise en charge et dépose, signalement d'absence en un clic et SMS d'urgence.</p>
+                </article>
+                <article class="card">
+                    <h3>Carburant et entretien</h3>
+                    <p>Pleins, coût au litre, consommation moyenne par bus, alertes de surconsommation et rappels d'entretien par date ou kilométrage.</p>
+                </article>
+                <article class="card">
+                    <h3>Sécurité et incidents</h3>
+                    <p>Alertes d'excès de vitesse, signalement d'incident par le chauffeur et historique consultable par l'administration.</p>
+                </article>
+                <article class="card">
+                    <h3>Fonctionne même hors connexion</h3>
+                    <p>Application web installable (PWA) : le chauffeur continue à embarquer les élèves sans réseau, puis tout se synchronise.</p>
+                </article>
+            </div>
+        </section>
+
+        <section>
+            <h2>Comment fonctionne Scolaloop pour une école ?</h2>
+            <div class="steps">
+                <div class="step"><strong>1. Inscrivez votre école</strong>Créez votre compte en quelques minutes, puis importez vos élèves et vos bus depuis Excel.</div>
+                <div class="step"><strong>2. Positionnez les domiciles</strong>Les parents placent leur domicile sur la carte : l'affectation au bus le plus proche est automatique.</div>
+                <div class="step"><strong>3. Suivez les tournées</strong>Le chauffeur ouvre son interface mobile, partage sa position et confirme chaque élève pris en charge.</div>
+            </div>
+        </section>
+
+        <section class="faq">
+            <h2>Questions fréquentes sur le transport scolaire</h2>
+            <details>
+                <summary>Qu'est-ce qu'un logiciel de transport scolaire ?</summary>
+                <p>Un logiciel de transport scolaire est une application qui centralise la gestion des bus d'une école : affectation des élèves, planification des tournées, suivi des véhicules, communication avec les parents et suivi des coûts comme le carburant ou l'entretien.</p>
+            </details>
+            <details>
+                <summary>Les parents peuvent-ils suivre le bus de leur enfant ?</summary>
+                <p>Oui. Chaque parent ou élève se connecte avec son matricule et voit la position du bus en temps réel, l'heure estimée d'arrivée, les notifications d'approche et l'historique des prises en charge et déposes.</p>
+            </details>
+            <details>
+                <summary>L'application fonctionne-t-elle sans Internet ?</summary>
+                <p>L'interface chauffeur est une application web progressive (PWA). En cas de coupure réseau, elle conserve les données localement et les synchronise dès le retour de la connexion.</p>
+            </details>
+            <details>
+                <summary>Peut-on gérer plusieurs bus et plusieurs écoles ?</summary>
+                <p>Oui. Une école peut gérer toute sa flotte, et l'administration générale de la plateforme supervise l'ensemble des écoles inscrites, avec des données strictement cloisonnées par établissement.</p>
+            </details>
+            <details>
+                <summary>Comment suivre le carburant de chaque bus ?</summary>
+                <p>L'école ou le chauffeur saisit chaque plein avec les litres, le prix au litre et le kilométrage. Scolaloop calcule le coût, la consommation en L/100 km et alerte en cas de surconsommation anormale.</p>
+            </details>
+            <details>
+                <summary>Comment démarrer avec Scolaloop ?</summary>
+                <p>Inscrivez votre école gratuitement depuis la page d'inscription. Aucune installation n'est nécessaire : l'application fonctionne dans un navigateur et peut être ajoutée à l'écran d'accueil du téléphone.</p>
+            </details>
+        </section>
+
+        <section class="cta">
+            <h2>Prêt à moderniser le transport scolaire de votre école ?</h2>
+            <p style="margin-bottom:1rem;">Créez votre école et testez la planification, le suivi GPS et le suivi du carburant.</p>
+            <a class="btn" href="{% url 'routing:register_school' %}">Créer mon espace école</a>
+        </section>
+    </main>
+
+    <footer>
+        © 2026 Scolaloop — Logiciel de transport scolaire · Développé par <strong>ESTECH</strong> ·
+        <a href="{% url 'routing:home' %}">Accueil</a> ·
+        <a href="{% url 'routing:manual' %}">Manuel d'utilisation</a>
+    </footer>
+
+    <script type="application/ld+json">
+    {
+        "@context": "https://schema.org",
+        "@type": "FAQPage",
+        "mainEntity": [
+            {
+                "@type": "Question",
+                "name": "Qu'est-ce qu'un logiciel de transport scolaire ?",
+                "acceptedAnswer": {
+                    "@type": "Answer",
+                    "text": "Un logiciel de transport scolaire centralise la gestion des bus d'une école : affectation des élèves, planification des tournées, suivi des véhicules, communication avec les parents et suivi des coûts comme le carburant ou l'entretien."
+                }
+            },
+            {
+                "@type": "Question",
+                "name": "Les parents peuvent-ils suivre le bus de leur enfant ?",
+                "acceptedAnswer": {
+                    "@type": "Answer",
+                    "text": "Oui. Chaque parent se connecte avec son matricule et voit la position du bus en temps réel, l'heure estimée d'arrivée, les notifications et l'historique des trajets."
+                }
+            },
+            {
+                "@type": "Question",
+                "name": "L'application fonctionne-t-elle sans Internet ?",
+                "acceptedAnswer": {
+                    "@type": "Answer",
+                    "text": "L'interface chauffeur est une application web progressive (PWA). Elle conserve les données localement en cas de coupure et les synchronise au retour de la connexion."
+                }
+            },
+            {
+                "@type": "Question",
+                "name": "Peut-on gérer plusieurs bus et plusieurs écoles ?",
+                "acceptedAnswer": {
+                    "@type": "Answer",
+                    "text": "Oui. Une école gère toute sa flotte et l'administration générale supervise les écoles inscrites, avec des données cloisonnées par établissement."
+                }
+            },
+            {
+                "@type": "Question",
+                "name": "Comment suivre le carburant de chaque bus ?",
+                "acceptedAnswer": {
+                    "@type": "Answer",
+                    "text": "Chaque plein est saisi avec les litres, le prix au litre et le kilométrage. Scolaloop calcule le coût, la consommation en L/100 km et alerte en cas de surconsommation."
+                }
+            },
+            {
+                "@type": "Question",
+                "name": "Comment démarrer avec Scolaloop ?",
+                "acceptedAnswer": {
+                    "@type": "Answer",
+                    "text": "Inscrivez votre école gratuitement en ligne. L'application fonctionne dans un navigateur et peut être ajoutée à l'écran d'accueil du téléphone."
+                }
+            }
+        ]
+    }
+    </script>
+    <script type="application/ld+json">
+    {
+        "@context": "https://schema.org",
+        "@type": "BreadcrumbList",
+        "itemListElement": [
+            {"@type": "ListItem", "position": 1, "name": "Accueil", "item": "{{ SITE_URL }}/"},
+            {"@type": "ListItem", "position": 2, "name": "Transport scolaire", "item": "{{ SITE_URL }}/transport-scolaire/"}
+        ]
+    }
+    </script>
+</body>
+</html>

@@ -4,13 +4,14 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Scolaloop — Optimisation des trajets de bus</title>
+    <meta name="theme-color" content="#4f46e5">
+    <title>Tableau de bord — Scolaloop</title>
     {% include 'routing/_pwa_head.html' %}
     <link rel="icon" type="image/svg+xml" href="{% static 'images/logo.svg' %}">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/leaflet-polylinedecorator@1.6.0/dist/leaflet.polylineDecorator.min.js"></script>
     <script src="{% static 'js/map_tiles.js' %}"></script>
@@ -256,26 +257,265 @@
         @media (max-width: 420px) {
             .kpi-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
         }
+
+        /* ======================================================================
+           REFONTE UI 2026 — palette unifiée, hiérarchie visuelle, ergonomie
+           ====================================================================== */
+        :root {
+            --primary: #0f172a;
+            --accent: #10b981;
+            --light: #f1f5f9;
+            --border: #e2e8f0;
+            --brand: #4f46e5;
+            --brand-2: #2563eb;
+            --muted: #64748b;
+            --surface: #ffffff;
+            --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.05);
+            --shadow-md: 0 10px 30px rgba(15, 23, 42, 0.08);
+        }
+        html { scroll-padding-top: 60px; }
+        :focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+        body {
+            font-family: 'Poppins', 'Segoe UI', system-ui, sans-serif;
+            background: #f1f5f9;
+            color: var(--primary);
+            -webkit-font-smoothing: antialiased;
+        }
+        header {
+            position: relative;
+            background: #ffffff;
+            color: var(--primary);
+            border-bottom: 1px solid var(--border);
+            padding: 0.7rem 1.4rem;
+            min-height: 64px;
+            box-shadow: var(--shadow-sm);
+        }
+        .header-brand { display: flex; align-items: center; gap: 0.85rem; min-width: 0; }
+        .header-logo { height: 2rem; width: auto; flex-shrink: 0; }
+        .header-titles { min-width: 0; }
+        header h1 { font-size: 1rem; font-weight: 700; color: var(--primary); letter-spacing: -0.01em; }
+        header .subtitle {
+            font-size: 0.72rem; color: var(--muted); margin-top: 0.1rem;
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 62vw;
+        }
+        .header-actions { display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap; }
+        .user-chip {
+            display: inline-flex; align-items: center; gap: 0.35rem;
+            background: #eef2ff; color: #3730a3; border: 1px solid #e0e7ff;
+            padding: 0.38rem 0.7rem; border-radius: 999px;
+            font-size: 0.76rem; font-weight: 600; white-space: nowrap;
+        }
+        .header-actions .btn {
+            background: #ffffff; color: #334155; border: 1px solid var(--border);
+            padding: 0.42rem 0.7rem; font-size: 0.76rem; box-shadow: none;
+        }
+        .header-actions .btn:hover { background: #f8fafc; border-color: #cbd5e1; }
+        .header-actions .btn-logout { color: #b91c1c; border-color: #fecaca; background: #fff5f5; }
+
+        .btn {
+            display: inline-flex; align-items: center; justify-content: center; gap: 0.35rem;
+            background: linear-gradient(135deg, var(--brand), var(--brand-2));
+            color: #ffffff; border: 1px solid transparent; border-radius: 9px;
+            padding: 0.52rem 0.9rem; font-size: 0.8rem; font-weight: 600; line-height: 1.2;
+            font-family: inherit; cursor: pointer; text-decoration: none;
+            box-shadow: 0 1px 2px rgba(79, 70, 229, 0.22);
+            transition: filter 0.15s, transform 0.1s, box-shadow 0.15s, background 0.15s;
+        }
+        .btn:hover { filter: brightness(1.07); box-shadow: 0 4px 12px rgba(79, 70, 229, 0.22); }
+        .btn:active { transform: translateY(1px); }
+        .btn-secondary { background: #ffffff; color: #334155; border-color: var(--border); box-shadow: none; }
+        .btn-secondary:hover { background: #f8fafc; border-color: #cbd5e1; filter: none; }
+        .btn-warning { background: #fff7ed; color: #9a3412; border-color: #fed7aa; box-shadow: none; }
+        .btn-warning:hover { background: #ffedd5; filter: none; }
+        .btn-danger { background: #fef2f2; color: #b91c1c; border-color: #fecaca; box-shadow: none; }
+        .btn-danger:hover { background: #fee2e2; filter: none; }
+        .btn-sm { padding: 0.32rem 0.6rem; font-size: 0.72rem; border-radius: 7px; }
+        .actions form { margin: 0; }
+
+        .messages { margin-top: 1rem; }
+        .msg {
+            display: flex; align-items: center; gap: 0.5rem;
+            border-radius: 10px; padding: 0.7rem 1rem; font-size: 0.86rem;
+            border: 1px solid transparent; box-shadow: var(--shadow-sm);
+        }
+        .msg.success { background: #f0fdf4; color: #166534; border-color: #bbf7d0; }
+        .msg.error { background: #fef2f2; color: #991b1b; border-color: #fecaca; }
+
+        .assign-alert {
+            background: #fffbeb; color: #92400e; border: 1px solid #fde68a;
+            border-left: 4px solid #f59e0b; border-radius: 12px;
+            box-shadow: var(--shadow-sm);
+        }
+
+        .kpi-row { grid-template-columns: repeat(auto-fit, minmax(158px, 1fr)); gap: 0.75rem; margin-top: 1rem; }
+        .kpi-card {
+            position: relative; background: var(--surface); border: 1px solid var(--border);
+            border-top: none; border-radius: 14px; padding: 1rem 1rem 0.9rem 1.15rem;
+            box-shadow: var(--shadow-sm); overflow: hidden;
+            transition: transform 0.15s, box-shadow 0.15s;
+        }
+        .kpi-card::before {
+            content: ''; position: absolute; left: 0; top: 14px; bottom: 14px;
+            width: 3px; border-radius: 999px; background: var(--brand);
+        }
+        .kpi-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-md); }
+        .kpi-card .kpi-lbl {
+            font-size: 0.66rem; font-weight: 700; text-transform: uppercase;
+            letter-spacing: 0.05em; color: var(--muted);
+        }
+        .kpi-card .kpi-val { font-size: 1.75rem; font-weight: 800; color: var(--primary); line-height: 1.2; letter-spacing: -0.02em; margin-top: 0.15rem; }
+        .kpi-card.kpi-alert::before { background: #ef4444; }
+        .kpi-card.kpi-alert .kpi-val { color: #dc2626; }
+
+        .tabs {
+            position: sticky; top: 0; z-index: 900;
+            background: rgba(255, 255, 255, 0.96);
+            backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+            border-bottom: 1px solid var(--border);
+            padding: 0.35rem 1rem; gap: 0.15rem;
+            box-shadow: 0 4px 12px rgba(15, 23, 42, 0.03);
+            scrollbar-width: none;
+        }
+        .tabs::-webkit-scrollbar { display: none; }
+        .tab-btn {
+            border: none; border-radius: 8px; border-bottom: none;
+            margin: 0.12rem 0; padding: 0.55rem 0.85rem;
+            font-size: 0.8rem; font-weight: 600; color: #64748b;
+            transition: background 0.15s, color 0.15s;
+        }
+        .tab-btn:hover { background: #f8fafc; color: #334155; }
+        .tab-btn.active { color: #4338ca; background: #eef2ff; box-shadow: inset 0 0 0 1px #e0e7ff; }
+
+        .tab-panel { padding: 1.3rem 1.4rem 2rem; max-width: 1440px; }
+        .card {
+            background: var(--surface); border: 1px solid var(--border);
+            border-radius: 14px; padding: 1.15rem 1.2rem; margin-bottom: 1rem;
+            box-shadow: var(--shadow-sm);
+        }
+        .card h2 { font-size: 0.96rem; font-weight: 700; margin-bottom: 0.75rem; color: var(--primary); }
+        .card.school-info { font-size: 0.86rem; color: #475569; }
+        .stat-card { border-top: none; }
+        .stat-card .big { font-size: 1.45rem; letter-spacing: -0.01em; }
+        .stat-row { font-size: 0.82rem; padding: 0.3rem 0; border-bottom: 1px dashed #f1f5f9; }
+        .stat-row:last-of-type { border-bottom: none; }
+        .progress { height: 8px; background: #eef2f7; margin-top: 0.6rem; }
+        .progress > div { background: linear-gradient(90deg, var(--brand), #10b981); border-radius: 999px; }
+
+        .table-wrap { border: 1px solid var(--border); border-radius: 12px; }
+        table { font-size: 0.82rem; }
+        th {
+            font-size: 0.66rem; font-weight: 700; text-transform: uppercase;
+            letter-spacing: 0.05em; color: var(--muted); background: #f8fafc;
+            padding: 0.62rem 0.65rem; border-bottom: 1px solid var(--border);
+        }
+        td { padding: 0.65rem; border-bottom: 1px solid #f1f5f9; color: #334155; vertical-align: middle; }
+        tbody tr:last-child td { border-bottom: none; }
+        tbody tr:hover { background: #fafbff; }
+        tbody tr td:first-child { font-weight: 600; color: var(--primary); }
+
+        .badge { font-size: 0.68rem; padding: 0.24rem 0.55rem; white-space: nowrap; }
+        .badge-active { background: #dcfce7; color: #166534; }
+        .badge-frozen { background: #dbeafe; color: #1e40af; }
+        .badge-absent { background: #fee2e2; color: #991b1b; }
+        .badge-off { background: #f1f5f9; color: #475569; }
+        .badge-alert { background: #fee2e2; color: #991b1b; }
+
+        .toolbar { gap: 0.45rem; }
+        .fleet-sidebar {
+            border-radius: 14px; box-shadow: var(--shadow-sm);
+            max-height: 640px; background: var(--surface);
+        }
+        .fleet-sidebar h3 { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+        .fleet-item { border-radius: 10px; background: #f8fafc; border-color: var(--border); transition: background 0.15s; }
+        .fleet-item:hover { background: #f1f5f9; }
+        #map {
+            border-radius: 14px; border: 1px solid var(--border); box-shadow: var(--shadow-sm);
+            /* La carte reste dans le premier écran sans écraser le reste. */
+            height: clamp(360px, calc(100vh - 330px), 640px);
+        }
+        .legend { padding: 0.8rem 1rem; color: #475569; }
+
+        .fuel-alert {
+            background: #fef2f2; border: 1px solid #fecaca;
+            border-left: 4px solid #dc2626; border-radius: 12px;
+            padding: 0.9rem 1rem; box-shadow: var(--shadow-sm);
+        }
+        .incident-item { border-radius: 12px; background: #ffffff; box-shadow: var(--shadow-sm); }
+        .incident-item.speed { background: #fef2f2; }
+        .incident-head strong { font-size: 0.88rem; }
+        .hint { font-size: 0.76rem; color: var(--muted); line-height: 1.5; }
+
+        .maintenance-grid select, .maintenance-grid input, #broadcast-bus, #broadcast-msg {
+            border-radius: 9px; border-color: var(--border); background: #ffffff;
+            font-family: inherit; transition: border-color 0.15s, box-shadow 0.15s;
+        }
+        .maintenance-grid select:focus, .maintenance-grid input:focus,
+        #broadcast-bus:focus, #broadcast-msg:focus {
+            outline: none; border-color: var(--brand);
+            box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.12);
+        }
+        .maintenance-grid label { font-size: 0.72rem; color: #475569; }
+
+        dialog { border-radius: 16px; padding: 1.5rem; box-shadow: 0 24px 60px rgba(15, 23, 42, 0.28); }
+        dialog h2 { font-size: 1rem; }
+        dialog form input { border-radius: 8px; font-family: inherit; }
+        .empty { font-size: 0.84rem; color: #94a3b8; }
+        footer { color: #94a3b8; font-size: 0.75rem; }
+
+        @media (max-width: 960px) {
+            header { padding: 0.65rem 0.9rem; }
+            header .subtitle { max-width: 55vw; }
+            .tab-panel { padding: 1rem 0.9rem 1.6rem; }
+            .kpi-row { padding: 0 0.9rem; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
+            .kpi-card .kpi-val { font-size: 1.45rem; }
+            .tabs { padding: 0.3rem 0.6rem; }
+        }
+        @media (max-width: 720px) {
+            header .subtitle { display: none; }
+            header h1 { font-size: 0.94rem; }
+            .user-chip { display: none; }
+            .header-actions .btn { padding: 0.4rem 0.55rem; font-size: 0.72rem; }
+            .assign-alert { margin-left: 0.9rem; margin-right: 0.9rem; }
+            .messages { padding: 0 0.9rem; }
+            .table-wrap table { min-width: 620px; }
+            /* Les KPI défilent horizontalement : les onglets restent visibles
+               sans faire défiler une longue colonne de cartes. */
+            .kpi-row {
+                display: flex; flex-wrap: nowrap; overflow-x: auto;
+                scroll-snap-type: x mandatory; scrollbar-width: none;
+                padding-bottom: 0.35rem;
+            }
+            .kpi-row::-webkit-scrollbar { display: none; }
+            .kpi-card { flex: 0 0 46%; scroll-snap-align: start; }
+        }
+        @media (max-width: 420px) {
+            .kpi-card .kpi-lbl { font-size: 0.6rem; }
+            .kpi-card .kpi-val { font-size: 1.3rem; }
+            .header-actions .btn { font-size: 0.68rem; }
+        }
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+        }
     </style>
 </head>
 <body>
     <header>
-        <div style="display:flex; align-items:center; gap:1rem;">
-            <img src="{% static 'images/logo.svg' %}" alt="Scolaloop Logo" class="h-10 w-auto logo-white">
-            <div>
-                <h1 style="margin:0;">Optimisation des trajets de bus</h1>
-                <div class="subtitle">Boucles fermées : École → élèves → École · OR-Tools + Haversine</div>
+        <div class="header-brand">
+            <img src="{% static 'images/logo.svg' %}" alt="Scolaloop" class="header-logo">
+            <div class="header-titles">
+                <h1>Tableau de bord</h1>
+                <div class="subtitle">{% if school %}{{ school.name }} · {% endif %}Transport scolaire en temps réel</div>
             </div>
         </div>
-        <div style="display:flex; align-items:center; gap:1rem;">
-            <span style="font-size:0.85rem; opacity:0.9;">👤 {{ request.user.username }}</span>
+        <div class="header-actions">
+            <span class="user-chip">👤 {{ request.user.username }}</span>
             {% if request.user.is_superuser %}
-            <a class="btn btn-secondary" href="{% url 'routing:schools_admin' %}" style="padding:0.5rem 1rem;">🏫 Admin. écoles</a>
+            <a class="btn" href="{% url 'routing:schools_admin' %}">🏫 Admin. écoles</a>
             {% endif %}
             {% if sales_access %}
-            <a class="btn btn-secondary" href="{% url 'sales:dashboard' %}" style="padding:0.5rem 1rem;">🎯 Suivi Commercial</a>
+            <a class="btn" href="{% url 'sales:dashboard' %}">🎯 Suivi commercial</a>
             {% endif %}
-            <a class="btn btn-secondary" href="{% url 'routing:logout' %}" style="padding:0.5rem 1rem;">Déconnexion</a>
+            <a class="btn btn-logout" href="{% url 'routing:logout' %}">Déconnexion</a>
         </div>
     </header>
 
@@ -318,6 +558,10 @@
         <div class="kpi-card kpi-alert">
             <div class="kpi-lbl">⛽ Surconsommation</div>
             <div class="kpi-val">{{ fuel_alerts|length }}</div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-lbl">🛠️ Entretiens à prévoir</div>
+            <div class="kpi-val">{{ maintenance_alert_count }}</div>
         </div>
         <div class="kpi-card">
             <div class="kpi-lbl">⏱️ En retard</div>
@@ -435,6 +679,7 @@
                 <button class="btn" onclick="openDialog('bus-add')">➕ Ajouter un bus</button>
                 <button class="btn btn-secondary" onclick="openDialog('bus-import')">📥 Importer Excel</button>
                 <a class="btn btn-secondary" href="{% url 'routing:export_students_by_bus' %}">📥 Liste élèves par bus (Excel)</a>
+                <a class="btn btn-secondary" href="{% url 'routing:export_fuel' %}">⛽ Export carburant (Excel)</a>
             </div>
             {% if buses %}
             <div class="table-wrap">
@@ -480,6 +725,14 @@
 
     <!-- ============================ Onglet Statistiques ============================ -->
     <section id="tab-stats" class="tab-panel">
+        <div class="card">
+            <h2>📈 Rapports et analyses</h2>
+            <div class="toolbar" style="margin-bottom:0;">
+                <a class="btn" href="{% url 'routing:statistics' %}">📊 Graphiques et tendances</a>
+                <a class="btn btn-secondary" href="{% url 'routing:monthly_report' %}">📄 Rapport mensuel (PDF)</a>
+                <a class="btn btn-secondary" href="{% url 'routing:monthly_report' %}?format=xlsx">📥 Rapport mensuel (Excel)</a>
+            </div>
+        </div>
         {% if stats %}
         <div class="stats-grid">
             {% for st in stats %}
@@ -572,13 +825,26 @@
                         <input type="date" id="maint-date" name="date_effectuee" value="{% now 'Y-m-d' %}">
                     </div>
                     <div>
-                        <label for="maint-next">Prochaine échéance (km ou date)</label>
-                        <input type="text" id="maint-next" name="prochaine_echeance" placeholder="Ex : 5000 km ou 15/12/2026">
+                        <label for="maint-next-date">Prochaine échéance (date)</label>
+                        <input type="date" id="maint-next-date" name="prochaine_echeance_date">
+                    </div>
+                    <div>
+                        <label for="maint-next-km">Prochaine échéance (km)</label>
+                        <input type="number" id="maint-next-km" name="prochaine_echeance_km" min="0" step="1" placeholder="Ex : 5000">
                     </div>
                 </div>
                 <button type="submit" class="btn" style="margin-top:0.8rem;">➕ Enregistrer l'entretien</button>
             </form>
         </div>
+
+        {% if maintenance_alerts %}
+        <div class="fuel-alert">
+            <strong>🔔 Entretiens à prévoir</strong>
+            {% for alert in maintenance_alerts %}
+                Bus {{ alert.record.bus.code_bus }} — {{ alert.record.service_type }} : {{ alert.reasons|join:", " }}{% if not forloop.last %} · {% endif %}
+            {% endfor %}
+        </div>
+        {% endif %}
 
         {% if maintenance %}
         <div class="card">
@@ -593,7 +859,11 @@
                         <td>{{ m.service_type }}</td>
                         <td>{{ m.cost }} $</td>
                         <td>{{ m.date_effectuee|date:"d/m/Y" }}</td>
-                        <td>{{ m.prochaine_echeance_km_ou_date|default:"—" }}</td>
+                        <td>
+                            {% if m.prochaine_echeance_date %}{{ m.prochaine_echeance_date|date:"d/m/Y" }}{% endif %}
+                            {% if m.prochaine_echeance_km %}{% if m.prochaine_echeance_date %} · {% endif %}{{ m.prochaine_echeance_km }} km{% endif %}
+                            {% if not m.prochaine_echeance_date and not m.prochaine_echeance_km %}{{ m.prochaine_echeance_km_ou_date|default:"—" }}{% endif %}
+                        </td>
                         <td>
                             <form method="post" action="{% url 'routing:maintenance_delete' m.pk %}"
                                   onsubmit="return confirm('Supprimer cet entretien ?');">
@@ -616,9 +886,9 @@
     <section id="tab-fuel" class="tab-panel">
         {% if fuel_alerts %}
         <div class="fuel-alert">
-            <strong>⚠️ Alerte de surconsommation (seuil : {{ fuel_alert_threshold }} L/100 km)</strong>
+            <strong>⚠️ Alerte de surconsommation</strong>
             {% for f in fuel_alerts %}
-                Bus {{ f.bus.code_bus }} : {{ f.latest_consumption|default:f.consumption }} L/100 km enregistrés sur le dernier plein{% if not forloop.last %} · {% endif %}
+                Bus {{ f.bus.code_bus }} : {{ f.latest_consumption|default:f.consumption }} L/100 km sur le dernier plein (seuil {{ f.alert_threshold }} L/100 km){% if not forloop.last %} · {% endif %}
             {% endfor %}
         </div>
         {% endif %}

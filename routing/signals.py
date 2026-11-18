@@ -24,7 +24,7 @@ from contextlib import contextmanager
 from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
 
-from .models import Bus, Student
+from .models import Bus, School, Student
 from .services import recalculate_school_routes
 
 logger = logging.getLogger(__name__)
@@ -82,8 +82,12 @@ def student_post_save(sender, instance, created, **kwargs):
 
 @receiver(post_delete, sender=Student)
 def student_post_delete(sender, instance, **kwargs):
-    """Suppression d'un élève → les bus concernés sont recalculés."""
-    _trigger_recalc(instance.school)
+    """Suppression d'un élève → les bus concernés sont recalculés.
+
+    L'école peut déjà avoir été supprimée (suppression en cascade d'une école) :
+    on relit alors prudemment son identifiant au lieu de suivre la FK.
+    """
+    _trigger_recalc(School.objects.filter(pk=instance.school_id).first())
 
 
 @receiver(post_save, sender=Bus)
@@ -102,4 +106,4 @@ def bus_post_save(sender, instance, created, **kwargs):
 @receiver(post_delete, sender=Bus)
 def bus_post_delete(sender, instance, **kwargs):
     """Suppression d'un bus → ses élèves sont réaffectés aux bus restants."""
-    _trigger_recalc(instance.school)
+    _trigger_recalc(School.objects.filter(pk=instance.school_id).first())

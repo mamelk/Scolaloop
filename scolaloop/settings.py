@@ -175,12 +175,13 @@ LOGGING = {
 SITE_NAME = os.environ.get('SITE_NAME', 'Scolaloop')
 SITE_URL = os.environ.get('SITE_URL', 'https://scolaloop.onrender.com')
 SITE_DESCRIPTION = (
-    'Scolaloop — Système intelligent de transport scolaire : optimisation des tournées, '
-    'suivi GPS en temps réel, communication parents-école et sécurité routière. '
-    'Développé par ESTECH.'
+    'Scolaloop — Logiciel de gestion de transport scolaire : planification des tournées de bus, '
+    'suivi GPS en temps réel, notifications parents, gestion du carburant et de l\'entretien. '
+    'Solution éditée par ESTECH pour les écoles.'
 )
 SITE_KEYWORDS = (
-    'transport scolaire, bus scolaire, tournées bus, suivi GPS, '
-    'optimisation tournées, application scolaire, ESTECH, Scolaloop'
+    'transport scolaire, logiciel transport scolaire, gestion bus scolaire, '
+    'application bus scolaire, suivi bus GPS, tournées scolaires, transport élèves, '
+    'logiciel école, RDC, Kinshasa, Lubumbashi, ESTECH, Scolaloop'
 )
 GOOGLE_SITE_VERIFICATION = os.environ.get('GOOGLE_SITE_VERIFICATION', '')

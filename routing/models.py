@@ -167,9 +167,23 @@ class Bus(models.Model):
         related_name="driven_bus",
         help_text="Compte de connexion du chauffeur associé à ce bus.",
     )
+    fuel_alert_threshold = models.DecimalField(
+        max_digits=5,
+        decimal_places=1,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(Decimal("0.1"))],
+        help_text="Seuil d'alerte de surconsommation propre à ce bus (L/100 km). "
+        "Vide = seuil global de l'application.",
+    )
 
     def __str__(self):
         return self.code_bus
+
+    @property
+    def fuel_threshold(self):
+        """Seuil de surconsommation applicable au bus (L/100 km)."""
+        return self.fuel_alert_threshold or FuelRecord.CONSUMPTION_ALERT_L_PER_100KM
 
 
 class BusStop(models.Model):
@@ -326,6 +340,12 @@ class BusMaintenance(models.Model):
     prochaine_echeance_km_ou_date = models.CharField(
         max_length=100, blank=True, help_text="Ex : 5000 km ou 15/12/2026."
     )
+    prochaine_echeance_date = models.DateField(
+        null=True, blank=True, help_text="Date prévue de la prochaine intervention."
+    )
+    prochaine_echeance_km = models.PositiveIntegerField(
+        null=True, blank=True, help_text="Kilométrage prévu de la prochaine intervention."
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -387,6 +407,70 @@ class FuelRecord(models.Model):
     def total_cost(self):
         """Coût total du plein (litres × prix au litre)."""
         return (self.liters * self.price_per_liter).quantize(Decimal("0.01"))
+
+
+class StudentTrip(models.Model):
+    """Événement de transport d'un élève (montée ou descente du bus).
+
+    Alimente l'historique visible par le parent : heure de prise en charge et
+    de dépose, avec le bus et la position au moment de l'événement.
+    """
+
+    EVENT_PICKUP = "pickup"
+    EVENT_DROPOFF = "dropoff"
+    EVENT_TYPES = [
+        (EVENT_PICKUP, "Prise en charge"),
+        (EVENT_DROPOFF, "Dépose"),
+    ]
+
+    student = models.ForeignKey(Student, on_delete=models.CASCADE, related_name="trips")
+    bus = models.ForeignKey(
+        Bus, on_delete=models.SET_NULL, null=True, blank=True, related_name="student_trips"
+    )
+    event = models.CharField(max_length=10, choices=EVENT_TYPES)
+    latitude = models.FloatField(null=True, blank=True)
+    longitude = models.FloatField(null=True, blank=True)
+    timestamp = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        ordering = ["-timestamp"]
+        indexes = [models.Index(fields=["student", "timestamp"])]
+
+    def __str__(self):
+        return f"{self.get_event_display()} — {self.student} à {self.timestamp:%H:%M}"
+
+
+class ParentNotification(models.Model):
+    """Notification affichée dans l'interface parent (sans coût SMS)."""
+
+    CATEGORY_APPROACH = "approach"
+    CATEGORY_PICKUP = "pickup"
+    CATEGORY_DROPOFF = "dropoff"
+    CATEGORY_INFO = "info"
+    CATEGORIES = [
+        (CATEGORY_APPROACH, "Bus en approche"),
+        (CATEGORY_PICKUP, "Prise en charge"),
+        (CATEGORY_DROPOFF, "Dépose"),
+        (CATEGORY_INFO, "Information"),
+    ]
+
+    student = models.ForeignKey(
+        Student, on_delete=models.CASCADE, related_name="notifications"
+    )
+    bus = models.ForeignKey(
+        Bus, on_delete=models.SET_NULL, null=True, blank=True, related_name="parent_notifications"
+    )
+    category = models.CharField(max_length=20, choices=CATEGORIES, default=CATEGORY_INFO)
+    message = models.CharField(max_length=255)
+    created_at = models.DateTimeField(auto_now_add=True)
+    read_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [models.Index(fields=["student", "read_at"])]
+
+    def __str__(self):
+        return f"{self.get_category_display()} — {self.student}"
 
 
 # ---------------------------------------------------------------- Suivi commercial (ventes)
