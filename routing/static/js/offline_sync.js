@@ -2,13 +2,14 @@
  * Scolaloop — Synchronisation hors-ligne (static/js/offline_sync.js)
  * ----------------------------------------------------------------------------
  * File d'attente locale (localStorage) des données accumulées pendant une
- * coupure réseau : points GPS {latitude, longitude, speed, timestamp} et
- * incidents. À chaque retour du réseau, toutes les données en attente sont
- * envoyées en un seul appel groupé à l'endpoint Django /api/sync-offline-data/.
+ * coupure réseau : points GPS, incidents et confirmations de ramassage/dépose.
+ * À chaque retour du réseau, toutes les données en attente sont envoyées en un
+ * seul appel groupé à l'endpoint Django /api/sync-offline-data/.
  *
  * API exposée sur window.ScolaloopOffline :
  *   - enqueuePoint(latitude, longitude, speed, timestamp)
  *   - enqueueIncident(typeIncident, description)
+ *   - enqueueAction(kind, studentId, timestamp)  (pickup | dropoff | undo_pickup)
  *   - pendingCount()        → nombre d'éléments en attente
  *   - isOnline()
  *   - syncData()            → tentative de resynchronisation immédiate
@@ -68,11 +69,11 @@
      * Ne fait rien si le navigateur est hors-ligne ou si la file est vide. */
     function syncData() {
         if (!navigator.onLine) {
-            return Promise.resolve({ skipped: true, synced_points: 0, synced_incidents: 0 });
+            return Promise.resolve({ skipped: true, synced_points: 0, synced_incidents: 0, synced_actions: 0 });
         }
         var queue = readQueue();
         if (queue.length === 0) {
-            return Promise.resolve({ skipped: true, synced_points: 0, synced_incidents: 0 });
+            return Promise.resolve({ skipped: true, synced_points: 0, synced_incidents: 0, synced_actions: 0 });
         }
 
         var points = queue
@@ -94,6 +95,17 @@
                     timestamp: r.timestamp || new Date().toISOString(),
                 };
             });
+        var actions = queue
+            .filter(function (r) {
+                return r.kind === 'pickup' || r.kind === 'dropoff' || r.kind === 'undo_pickup';
+            })
+            .map(function (r) {
+                return {
+                    kind: r.kind,
+                    student_id: r.student_id,
+                    timestamp: r.timestamp || new Date().toISOString(),
+                };
+            });
 
         return fetch(SYNC_URL, {
             method: 'POST',
@@ -102,10 +114,10 @@
                 'Content-Type': 'application/json',
                 'X-CSRFToken': csrfToken(),
             },
-            body: JSON.stringify({ points: points, incidents: incidents }),
+            body: JSON.stringify({ points: points, incidents: incidents, actions: actions }),
         })
             .then(function (resp) {
-                if (!resp.ok) return { skipped: false, synced_points: 0, synced_incidents: 0 };
+                if (!resp.ok) return { skipped: false, synced_points: 0, synced_incidents: 0, synced_actions: 0 };
                 return resp.json();
             })
             .then(function (result) {
@@ -115,11 +127,11 @@
                     emit('scolaloop:queuechange', { pending: 0 });
                     emit('scolaloop:sync', result);
                 }
-                return result || { skipped: false, synced_points: 0, synced_incidents: 0 };
+                return result || { skipped: false, synced_points: 0, synced_incidents: 0, synced_actions: 0 };
             })
             .catch(function () {
                 // Réseau instable : les données restent en file pour une prochaine tentative.
-                return { skipped: false, synced_points: 0, synced_incidents: 0 };
+                return { skipped: false, synced_points: 0, synced_incidents: 0, synced_actions: 0 };
             });
     }
 
@@ -146,6 +158,13 @@
                 type_incident: typeIncident,
                 description: description || '',
                 timestamp: new Date().toISOString(),
+            });
+        },
+        enqueueAction: function (kind, studentId, timestamp) {
+            return enqueue({
+                kind: kind,
+                student_id: studentId,
+                timestamp: timestamp || new Date().toISOString(),
             });
         },
         pendingCount: function () {

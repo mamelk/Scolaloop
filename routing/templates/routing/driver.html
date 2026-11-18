@@ -205,6 +205,29 @@
         .voice-btn:active { transform: scale(0.98); }
         .modal-box { border-radius: 22px; }
         .big-green { min-height: 4.2rem; font-size: 1.25rem; }
+        .pickup-group {
+            border: 1px solid #334155; border-radius: 12px; padding: 0.65rem;
+            margin-top: 0.55rem; background: #0f172a;
+        }
+        .pickup-group h3 {
+            display: flex; justify-content: space-between; gap: 0.5rem;
+            margin: 0 0 0.35rem; font-size: 0.92rem;
+        }
+        .pickup-row, .taken-row {
+            display: flex; align-items: center; justify-content: space-between;
+            gap: 0.5rem; padding: 0.4rem 0; border-top: 1px solid #1e293b;
+            font-size: 0.9rem;
+        }
+        .pickup-row:first-of-type { border-top: none; }
+        .taken-actions { display: flex; gap: 0.35rem; }
+        .btn-mini {
+            min-height: 2.6rem; padding: 0.35rem 0.7rem; border: none;
+            border-radius: 8px; font-weight: 700;
+        }
+        .btn-mini.primary { background: var(--accent); color: #052e16; }
+        .btn-mini.secondary { background: #334155; color: var(--text); }
+        .btn-mini.danger { background: #7f1d1d; color: #fee2e2; }
+        .btn-group { width: 100%; margin-top: 0.5rem; min-height: 3.2rem; font-size: 1rem; }
         @media (max-width: 480px) {
             .topbar { padding-left: 0.8rem; padding-right: 0.8rem; }
             .incident-panel { margin-left: 0.8rem; margin-right: 0.8rem; }
@@ -283,19 +306,15 @@
         <div id="incident-msg" class="incident-msg"></div>
     </div>
 
-    {% if taken_students %}
-    <div class="incident-panel" style="border-left-color: var(--accent);">
+    <div class="incident-panel" id="taken-panel" style="border-left-color: var(--accent); display:none;">
         <div class="incident-title">🎒 Élèves à bord</div>
-        {% for s in taken_students %}
-        <form method="post" action="{% url 'routing:driver_dropoff' s.pk %}"
-              style="display:flex; align-items:center; justify-content:space-between; gap:0.6rem; margin-top:0.5rem;">
-            {% csrf_token %}
-            <span style="font-size:0.88rem;">{{ s.prenom }} {{ s.nom }} <span style="opacity:0.7;">({{ s.matricule }})</span></span>
-            <button type="submit" style="padding:0.45rem 0.8rem; border:none; border-radius:8px; background:var(--accent); color:#052e16; font-weight:700;">🏫 Déposer</button>
-        </form>
-        {% endfor %}
+        <div id="taken-list"></div>
     </div>
-    {% endif %}
+
+    <div class="incident-panel" id="pickup-panel" style="border-left-color:#60a5fa;">
+        <div class="incident-title">📍 Arrêts et élèves à prendre</div>
+        <div id="pickup-groups"><p class="hint">Chargement…</p></div>
+    </div>
 
     <details class="incident-panel" style="border-left-color:#60a5fa;">
         <summary class="incident-title" style="cursor:pointer;">⛽ Enregistrer un plein</summary>
@@ -437,21 +456,29 @@
 
         // ---------- Détection d'arrivée ----------
         function checkProximity(lat, lon) {
+            if (document.getElementById('pickup-modal').classList.contains('show')) return;
+            let nearest = null;
             students.forEach(s => {
-                if (s.taken) return;
+                if (s.taken || s.absent) return;
                 const d = haversineM(lat, lon, s.latitude, s.longitude);
                 if (d < 300 && !s.announcedApproach) {
                     s.announcedApproach = true;
                     rememberFlags(s);
                     speak(`Prochain arrêt dans ${Math.round(d)} mètres : Ramassage de ${s.name.split(' ')[0]}.`);
                 }
-                if (d < 30 && !s.modalShown) {
-                    s.modalShown = true;
-                    rememberFlags(s);
-                    openPickupModal(s);
-                    speak(`Vous êtes arrivé chez ${s.name.split(' ')[0]}. Veuillez confirmer l'embarquement.`);
+                // Une seule modale à la fois : au même arrêt, les autres élèves
+                // restent accessibles dans la liste groupée ci-dessous.
+                if (d < 30 && !s.modalShown && (!nearest || d < nearest.distance)) {
+                    nearest = { student: s, distance: d };
                 }
             });
+            if (nearest) {
+                const student = nearest.student;
+                student.modalShown = true;
+                rememberFlags(student);
+                openPickupModal(student);
+                speak(`Vous êtes arrivé chez ${student.name.split(' ')[0]}. Veuillez confirmer l'embarquement.`);
+            }
         }
 
         // ---------- GPS en temps réel ----------
@@ -573,6 +600,156 @@
 
         startGPS();
 
+        // ---------- Arrêts groupés et liste de secours ----------
+        function esc(value) {
+            const div = document.createElement('div');
+            div.textContent = value == null ? '' : String(value);
+            return div.innerHTML;
+        }
+
+        function updateCounters() {
+            const visible = students.filter(s => !s.absent);
+            const taken = visible.filter(s => s.taken).length;
+            document.getElementById('stat-taken').textContent = taken;
+            document.getElementById('stat-remaining').textContent = visible.length - taken;
+            document.getElementById('stat-total').textContent = visible.length;
+        }
+
+        function setStudentTaken(student, taken) {
+            student.taken = taken;
+            rememberFlags(student);
+            window.ScolaloopDriverMap.setStudentState(
+                studentMarkers[student.id], taken ? 'taken' : 'waiting'
+            );
+        }
+
+        function renderStudentPanels() {
+            const active = students.filter(s => !s.absent && !s.taken);
+            const groups = {};
+            active.forEach(s => {
+                const key = s.stop_id ? 'stop-' + s.stop_id : 'solo-' + s.id;
+                if (!groups[key]) {
+                    groups[key] = {
+                        id: s.stop_id || null,
+                        name: s.stop_name || 'Sans arrêt',
+                        order: s.stop_order == null ? 9999 : s.stop_order,
+                        students: [],
+                    };
+                }
+                groups[key].students.push(s);
+            });
+            const ordered = Object.values(groups).sort(
+                (a, b) => a.order - b.order || a.name.localeCompare(b.name)
+            );
+            const container = document.getElementById('pickup-groups');
+            container.innerHTML = ordered.length ? ordered.map(group => {
+                const rows = group.students.map(s => `
+                    <div class="pickup-row">
+                        <span>${esc(s.name)} <small style="opacity:.65">(${esc(s.matricule)})</small></span>
+                        <button type="button" class="btn-mini primary" data-pickup="${s.id}">Prendre</button>
+                    </div>`).join('');
+                const groupButton = group.id && group.students.length > 1
+                    ? `<button type="button" class="btn-mini primary btn-group" data-pickup-group="${group.id}">Prendre les ${group.students.length} élèves</button>`
+                    : '';
+                return `<div class="pickup-group">
+                    <h3><span>📍 ${esc(group.name)}</span><span>${group.students.length} élève(s)</span></h3>
+                    ${rows}${groupButton}
+                </div>`;
+            }).join('') : '<p class="hint">Tous les élèves sont pris en charge.</p>';
+
+            container.querySelectorAll('[data-pickup]').forEach(button => {
+                button.addEventListener('click', () => {
+                    const student = students.find(s => s.id === parseInt(button.dataset.pickup, 10));
+                    if (student) performPickup(student);
+                });
+            });
+            container.querySelectorAll('[data-pickup-group]').forEach(button => {
+                button.addEventListener('click', () => {
+                    const stopId = parseInt(button.dataset.pickupGroup, 10);
+                    const ids = students
+                        .filter(s => !s.absent && !s.taken && s.stop_id === stopId)
+                        .map(s => s.id);
+                    performPickupGroup(stopId, ids);
+                });
+            });
+
+            const taken = students.filter(s => !s.absent && s.taken);
+            const takenPanel = document.getElementById('taken-panel');
+            takenPanel.style.display = taken.length ? '' : 'none';
+            document.getElementById('taken-list').innerHTML = taken.map(s => `
+                <div class="taken-row">
+                    <span>${esc(s.name)} <small style="opacity:.65">(${esc(s.matricule)})</small></span>
+                    <span class="taken-actions">
+                        <button type="button" class="btn-mini secondary" data-undo="${s.id}">↩ Annuler</button>
+                        <button type="button" class="btn-mini primary" data-dropoff="${s.id}">🏫 Déposer</button>
+                    </span>
+                </div>`).join('');
+            document.querySelectorAll('[data-undo]').forEach(button => {
+                button.addEventListener('click', () => {
+                    const student = students.find(s => s.id === parseInt(button.dataset.undo, 10));
+                    if (student) performUndo(student);
+                });
+            });
+            document.querySelectorAll('[data-dropoff]').forEach(button => {
+                button.addEventListener('click', () => {
+                    const student = students.find(s => s.id === parseInt(button.dataset.dropoff, 10));
+                    if (student) performDropoff(student);
+                });
+            });
+            updateCounters();
+        }
+
+        async function performPickup(student) {
+            const result = await window.ScolaloopTracking.pickupStudent(student.id);
+            if (!result.ok) {
+                alert(result.error || 'Erreur lors de la confirmation.');
+                return false;
+            }
+            setStudentTaken(student, true);
+            renderStudentPanels();
+            if (!result.queued) refreshRoute();
+            speak(`${student.name.split(' ')[0]} a été marqué comme présent.`);
+            return true;
+        }
+
+        async function performPickupGroup(stopId, ids) {
+            if (!ids.length) return;
+            const result = await window.ScolaloopTracking.pickupStop(stopId, ids);
+            if (!result.ok) {
+                alert(result.error || 'Erreur lors de la confirmation du groupe.');
+                return;
+            }
+            const takenIds = (result.data && result.data.student_ids) || ids;
+            students.filter(s => takenIds.includes(s.id)).forEach(s => setStudentTaken(s, true));
+            renderStudentPanels();
+            if (!result.queued) refreshRoute();
+            speak(`${takenIds.length} élève(s) pris en charge à cet arrêt.`);
+        }
+
+        async function performDropoff(student) {
+            const result = await window.ScolaloopTracking.dropoffStudent(student.id);
+            if (!result.ok) {
+                alert(result.error || 'Erreur lors de la dépose.');
+                return;
+            }
+            setStudentTaken(student, false);
+            renderStudentPanels();
+            if (!result.queued) refreshRoute();
+            speak(`${student.name.split(' ')[0]} a été déposé.`);
+        }
+
+        async function performUndo(student) {
+            if (!confirm(`Annuler le ramassage de ${student.name} ?`)) return;
+            const result = await window.ScolaloopTracking.undoPickup(student.id);
+            if (!result.ok) {
+                alert(result.error || 'Annulation impossible.');
+                return;
+            }
+            setStudentTaken(student, false);
+            renderStudentPanels();
+            if (!result.queued) refreshRoute();
+        }
+
         // ---------- Modale d'embarquement ----------
         function openPickupModal(s) {
             currentModalStudent = s;
@@ -580,38 +757,26 @@
             document.getElementById('pickup-matricule').textContent = s.matricule;
             document.getElementById('pickup-modal').classList.add('show');
         }
-        function closePickupModal() {
+        function closePickupModal(confirmed) {
+            if (currentModalStudent && !confirmed) {
+                // Une annulation ne doit pas bloquer l'élève pour le reste du trajet.
+                currentModalStudent.modalShown = false;
+                rememberFlags(currentModalStudent);
+            }
             document.getElementById('pickup-modal').classList.remove('show');
             currentModalStudent = null;
         }
-        document.getElementById('pickup-cancel').addEventListener('click', closePickupModal);
+        document.getElementById('pickup-cancel').addEventListener('click', () => closePickupModal(false));
         document.getElementById('pickup-btn').addEventListener('click', async () => {
             const s = currentModalStudent;
             if (!s) return;
-            try {
-                const resp = await fetch(`/driver/pickup/${s.id}/`, {
-                    method: 'POST',
-                    headers: { 'X-CSRFToken': csrfToken },
-                });
-                const result = await resp.json();
-                if (result.ok) {
-                    s.taken = true;
-                    rememberFlags(s);
-                    // Marqueur passe en ⚪ gris (ramassé/déposé).
-                    window.ScolaloopDriverMap.setStudentState(studentMarkers[s.id], 'taken');
-                    document.getElementById('stat-taken').textContent = result.taken;
-                    document.getElementById('stat-remaining').textContent = result.remaining;
-                    document.getElementById('stat-total').textContent = result.total;
-                    closePickupModal();
-                    speak(`${s.name.split(' ')[0]} a été marqué comme présent.`);
-                } else {
-                    alert(result.error || 'Erreur lors de la confirmation.');
-                    closePickupModal();
-                }
-            } catch (err) {
-                alert('Problème réseau lors de la confirmation.');
-                closePickupModal();
-            }
+            const button = document.getElementById('pickup-btn');
+            button.disabled = true;
+            button.textContent = 'Envoi…';
+            const ok = await performPickup(s);
+            button.disabled = false;
+            button.textContent = "✅ PRENDRE L'ÉLÈVE";
+            closePickupModal(ok);
         });
 
         // ---------- Rafraîchissement automatique de la feuille de route ----------
@@ -625,6 +790,7 @@
                 const routeData = await resp.json();
                 setStudents(routeData.students);
                 window.ScolaloopDriverMap.updateRoute(routeData);
+                renderStudentPanels();
                 document.getElementById('stat-taken').textContent = routeData.taken;
                 document.getElementById('stat-remaining').textContent = routeData.remaining;
                 document.getElementById('stat-total').textContent = routeData.total;
@@ -635,6 +801,11 @@
         // Réinterroge la feuille de route toutes les 10 s : un élève nouvellement
         // affecté (ou une absence de dernière minute) apparaît sans recharger la page.
         setInterval(refreshRoute, 10000);
+
+        // Après resynchronisation hors-ligne, on recharge les états depuis le serveur.
+        window.addEventListener('scolaloop:sync', () => refreshRoute());
+
+        renderStudentPanels();
     </script>
 </body>
 </html>

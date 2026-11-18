@@ -103,6 +103,83 @@
             });
     }
 
+    /* Confirmation de ramassage/dépose avec repli hors-ligne.
+     * L'action est rejouée au retour du réseau ; le serveur est idempotent. */
+    function queueAction(kind, studentId) {
+        var pending = pendingCount();
+        if (window.ScolaloopOffline) {
+            pending = window.ScolaloopOffline.enqueueAction(kind, studentId);
+            window.ScolaloopOffline.syncData();
+        }
+        updateIndicator();
+        return { ok: true, queued: true, pending: pending };
+    }
+
+    function actionRequest(url, kind, studentId) {
+        if (!navigator.onLine) {
+            return Promise.resolve(queueAction(kind, studentId));
+        }
+        return postWithTimeout(url, {})
+            .then(function (resp) {
+                return resp.json().catch(function () { return {}; }).then(function (data) {
+                    updateIndicator();
+                    if (!resp.ok) {
+                        return {
+                            ok: false,
+                            error: data.error || 'Action refusée par le serveur.',
+                            queued: false,
+                            pending: pendingCount(),
+                        };
+                    }
+                    return { ok: true, data: data, queued: false, pending: pendingCount() };
+                });
+            })
+            .catch(function () {
+                return queueAction(kind, studentId);
+            });
+    }
+
+    function pickupStudent(studentId) {
+        return actionRequest('/driver/pickup/' + studentId + '/', 'pickup', studentId);
+    }
+
+    function dropoffStudent(studentId) {
+        return actionRequest('/driver/dropoff/' + studentId + '/', 'dropoff', studentId);
+    }
+
+    function undoPickup(studentId) {
+        return actionRequest('/driver/undo-pickup/' + studentId + '/', 'undo_pickup', studentId);
+    }
+
+    /* Validation groupée d'un arrêt : un seul appel en ligne, sinon une action
+     * en file par élève (le serveur les rejouera dans l'ordre). */
+    function pickupStop(stopId, studentIds) {
+        var ids = studentIds || [];
+        if (!navigator.onLine) {
+            ids.forEach(function (id) { queueAction('pickup', id); });
+            return Promise.resolve({ ok: true, queued: true, pending: pendingCount() });
+        }
+        return postWithTimeout('/driver/pickup-stop/' + stopId + '/', {})
+            .then(function (resp) {
+                return resp.json().catch(function () { return {}; }).then(function (data) {
+                    updateIndicator();
+                    if (!resp.ok) {
+                        return {
+                            ok: false,
+                            error: data.error || 'Action refusée par le serveur.',
+                            queued: false,
+                            pending: pendingCount(),
+                        };
+                    }
+                    return { ok: true, data: data, queued: false, pending: pendingCount() };
+                });
+            })
+            .catch(function () {
+                ids.forEach(function (id) { queueAction('pickup', id); });
+                return { ok: true, queued: true, pending: pendingCount() };
+            });
+    }
+
     /* Signale un incident ; hors-ligne, il est mis en file pour resynchronisation. */
     function reportIncident(typeIncident, description) {
         return postWithTimeout(INCIDENT_URL, {
@@ -133,6 +210,10 @@
     window.ScolaloopTracking = {
         sendPosition: sendPosition,
         reportIncident: reportIncident,
+        pickupStudent: pickupStudent,
+        pickupStop: pickupStop,
+        dropoffStudent: dropoffStudent,
+        undoPickup: undoPickup,
         updateIndicator: updateIndicator,
         pendingCount: pendingCount,
     };

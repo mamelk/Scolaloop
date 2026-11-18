@@ -1054,6 +1054,8 @@ def dashboard_view(request):
         return blocked
 
     school = _user_school(request.user)
+    # Un ramassage de la veille non clôturé ne doit pas rester « pris » aujourd'hui.
+    _reset_stale_pickups_for_school(school)
     students = Student.objects.filter(school=school, is_active=True).order_by("nom", "prenom")
     buses = Bus.objects.filter(school=school).order_by("code_bus")
     routes = (
@@ -2394,11 +2396,16 @@ def driver_view(request):
         return redirect("routing:dashboard")
 
     route = bus.routes.order_by("-created_at").first()
+    _reset_stale_pickups(route)
     absent = absent_student_ids()
     # Tous les élèves du trajet (pour la carte) ; les absents du jour y figurent
     # avec le drapeau « absent » (marqueur rouge) mais pas sur la feuille de route.
     route_students = _route_students_in_order(route) if route else []
     students = [s for s in route_students if s.id not in absent]
+    stop_info = (
+        {rs.stop_id: rs for rs in route.stops.select_related("stop")}
+        if route else {}
+    )
 
     taken = sum(1 for s in students if s.is_taken)
     total = len(students)
@@ -2446,9 +2453,19 @@ def driver_view(request):
                 "taken": s.is_taken,
                 "absent": s.id in absent,
                 "order": idx,
+                "stop_id": s.bus_stop_id,
+                "stop_name": (
+                    stop_info[s.bus_stop_id].stop.name
+                    if s.bus_stop_id in stop_info else None
+                ),
+                "stop_order": (
+                    stop_info[s.bus_stop_id].order
+                    if s.bus_stop_id in stop_info else None
+                ),
             }
             for idx, s in enumerate(route_students)
         ],
+        "stops": _stop_payload(route),
     }
 
     context = {
@@ -2566,6 +2583,200 @@ def driver_update_position(request):
     )
 
 
+# Fenêtre pendant laquelle le chauffeur peut annuler une confirmation erronée.
+UNDO_PICKUP_WINDOW_MINUTES = 15
+
+
+def _sync_route_counts(route):
+    """Recalcule les compteurs d'une tournée à partir des états réels."""
+    if route is None:
+        return
+    total = route.students.count()
+    taken = route.students.filter(is_taken=True).count()
+    route.students_taken = taken
+    route.students_remaining = max(0, total - taken)
+    route.save(update_fields=["students_taken", "students_remaining"])
+
+
+def _pickup_students(bus, students, when=None, route=None):
+    """Marque en une fois les élèves donnés comme pris en charge.
+
+    Utilisé par la validation individuelle, la validation groupée d'un arrêt
+    et la resynchronisation hors-ligne. Retourne les élèves effectivement
+    nouvellement pris (les autres sont ignorés).
+    """
+    when = when or timezone.now()
+    students = [s for s in students if not s.is_taken]
+    if not students:
+        return []
+    if route is None:
+        route = students[0].assigned_route
+
+    Student.objects.filter(pk__in=[s.pk for s in students]).update(is_taken=True)
+    StudentTrip.objects.bulk_create([
+        StudentTrip(
+            student=s, bus=bus, event=StudentTrip.EVENT_PICKUP,
+            latitude=bus.last_latitude, longitude=bus.last_longitude,
+            timestamp=when,
+        )
+        for s in students
+    ])
+    local_time = timezone.localtime(when)
+    ParentNotification.objects.bulk_create([
+        ParentNotification(
+            student=s, bus=bus, category=ParentNotification.CATEGORY_PICKUP,
+            message=(
+                f"{s.prenom} a été pris en charge par le bus {bus.code_bus} "
+                f"à {local_time.strftime('%H:%M')}."
+            ),
+        )
+        for s in students
+    ])
+    _sync_route_counts(route)
+    return students
+
+
+def _dropoff_students(bus, students, when=None, route=None):
+    """Marque en une fois les élèves donnés comme déposés."""
+    when = when or timezone.now()
+    students = [s for s in students if s.is_taken]
+    if not students:
+        return []
+    if route is None:
+        route = students[0].assigned_route
+
+    Student.objects.filter(pk__in=[s.pk for s in students]).update(
+        is_taken=False, parent_notified=False
+    )
+    StudentTrip.objects.bulk_create([
+        StudentTrip(
+            student=s, bus=bus, event=StudentTrip.EVENT_DROPOFF,
+            latitude=bus.last_latitude, longitude=bus.last_longitude,
+            timestamp=when,
+        )
+        for s in students
+    ])
+    local_time = timezone.localtime(when)
+    ParentNotification.objects.bulk_create([
+        ParentNotification(
+            student=s, bus=bus, category=ParentNotification.CATEGORY_DROPOFF,
+            message=(
+                f"{s.prenom} a été déposé par le bus {bus.code_bus} "
+                f"à {local_time.strftime('%H:%M')}."
+            ),
+        )
+        for s in students
+    ])
+    _sync_route_counts(route)
+    return students
+
+
+def _undo_pickup(bus, student, route=None):
+    """Annule un ramassage récent (confirmation erronée du chauffeur).
+
+    Retourne (ok, message). Seules les confirmations de moins de 15 minutes
+    sont annulables afin de ne pas réécrire un historique déjà consulté.
+    """
+    if not student.is_taken:
+        return False, "Élève déjà en attente."
+    cutoff = timezone.now() - timedelta(minutes=UNDO_PICKUP_WINDOW_MINUTES)
+    recent_trip = (
+        StudentTrip.objects.filter(
+            student=student, bus=bus, event=StudentTrip.EVENT_PICKUP,
+            timestamp__gte=cutoff,
+        ).order_by("-timestamp").first()
+    )
+    if recent_trip is None:
+        return False, "Annulation impossible : le ramassage date de plus de 15 minutes."
+
+    student.is_taken = False
+    student.save(update_fields=["is_taken"])
+    recent_trip.delete()
+    recent_notification = (
+        ParentNotification.objects.filter(
+            student=student, bus=bus, category=ParentNotification.CATEGORY_PICKUP,
+            created_at__gte=cutoff,
+        ).order_by("-created_at").first()
+    )
+    if recent_notification is not None:
+        recent_notification.delete()
+    _sync_route_counts(route or student.assigned_route)
+    return True, "Ramassage annulé."
+
+
+def _reset_stale_pickups(route):
+    """Remet à zéro les ramassages qui datent d'un jour précédent.
+
+    `is_taken` n'a pas de date propre : on s'appuie sur le dernier StudentTrip
+    de type pickup. Si aucun ramassage n'a eu lieu aujourd'hui, l'élève est
+    remis en attente (cas d'une dépose oubliée la veille).
+    """
+    if route is None:
+        return
+    students = list(route.students.filter(is_taken=True))
+    if not students:
+        return
+    today = timezone.localdate()
+    picked_today = set(
+        StudentTrip.objects.filter(
+            student__in=students,
+            event=StudentTrip.EVENT_PICKUP,
+            timestamp__date=today,
+        ).values_list("student_id", flat=True)
+    )
+    stale_ids = [
+        s.pk for s in students if s.is_taken and s.pk not in picked_today
+    ]
+    if stale_ids:
+        Student.objects.filter(pk__in=stale_ids).update(
+            is_taken=False, parent_notified=False
+        )
+    _sync_route_counts(route)
+
+
+def _reset_stale_pickups_for_school(school):
+    if school is None:
+        return
+    for route in Route.objects.filter(school=school):
+        _reset_stale_pickups(route)
+
+
+def _stop_payload(route):
+    """Arrêts de la tournée avec leurs élèves, pour l'écran chauffeur."""
+    if route is None:
+        return []
+    absent = absent_student_ids()
+    students = list(
+        route.students.exclude(pk__in=absent).order_by("nom", "prenom")
+    )
+    by_stop = {}
+    for student in students:
+        by_stop.setdefault(student.bus_stop_id, []).append(student)
+    payload = []
+    for route_stop in route.stops.select_related("stop").order_by("order"):
+        members = by_stop.pop(route_stop.stop_id, [])
+        if not members:
+            continue
+        payload.append({
+            "id": route_stop.stop_id,
+            "name": route_stop.stop.name,
+            "order": route_stop.order,
+            "student_ids": [s.pk for s in members],
+            "remaining": sum(1 for s in members if not s.is_taken),
+        })
+    # Trajets calculés avant la mémorisation de l'arrêt : un groupe par élève.
+    for members in by_stop.values():
+        for student in members:
+            payload.append({
+                "id": None,
+                "name": "Sans arrêt",
+                "order": 9999,
+                "student_ids": [student.pk],
+                "remaining": 0 if student.is_taken else 1,
+            })
+    return payload
+
+
 @login_required
 def driver_pickup_student(request, pk):
     """API AJAX : marque un élève comme pris en charge (ramassage confirmé)."""
@@ -2579,31 +2790,8 @@ def driver_pickup_student(request, pk):
     if student.is_taken:
         return JsonResponse({"error": "Élève déjà pris en charge."}, status=400)
 
-    student.is_taken = True
-    student.save(update_fields=["is_taken"])
-
     route = student.assigned_route
-    route.students_taken += 1
-    route.students_remaining = max(0, route.students_remaining - 1)
-    route.save(update_fields=["students_taken", "students_remaining"])
-
-    StudentTrip.objects.create(
-        student=student,
-        bus=bus,
-        event=StudentTrip.EVENT_PICKUP,
-        latitude=bus.last_latitude,
-        longitude=bus.last_longitude,
-    )
-    ParentNotification.objects.create(
-        student=student,
-        bus=bus,
-        category=ParentNotification.CATEGORY_PICKUP,
-        message=(
-            f"{student.prenom} a été pris en charge par le bus {bus.code_bus} "
-            f"à {timezone.localtime().strftime('%H:%M')}."
-        ),
-    )
-
+    _pickup_students(bus, [student], route=route)
     return JsonResponse(
         {
             "ok": True,
@@ -2613,6 +2801,61 @@ def driver_pickup_student(request, pk):
             "total": route.students.count(),
         }
     )
+
+
+@login_required
+def driver_pickup_stop(request, pk):
+    """Marque en une seule action tous les élèves d'un arrêt commun."""
+    if request.method != "POST":
+        return JsonResponse({"error": "Méthode non autorisée."}, status=405)
+
+    bus = getattr(request.user, "driven_bus", None)
+    if bus is None:
+        return JsonResponse({"error": "Aucun bus assigné."}, status=403)
+    route = bus.routes.order_by("-created_at").first()
+    if route is None or not route.stops.filter(stop_id=pk).exists():
+        return JsonResponse({"error": "Arrêt inconnu pour ce bus."}, status=404)
+
+    students = list(
+        route.students.filter(bus_stop_id=pk, is_taken=False).exclude(
+            pk__in=absent_student_ids()
+        )
+    )
+    if not students:
+        return JsonResponse({"error": "Aucun élève à prendre à cet arrêt."}, status=400)
+
+    taken = _pickup_students(bus, students, route=route)
+    return JsonResponse(
+        {
+            "ok": True,
+            "student_ids": [s.pk for s in taken],
+            "taken": route.students_taken,
+            "remaining": route.students_remaining,
+            "total": route.students.count(),
+        }
+    )
+
+
+@login_required
+def driver_undo_pickup(request, pk):
+    """Annule un ramassage confirmé par erreur (dans les 15 minutes)."""
+    if request.method != "POST":
+        return JsonResponse({"error": "Méthode non autorisée."}, status=405)
+
+    bus = getattr(request.user, "driven_bus", None)
+    student = get_object_or_404(Student, pk=pk)
+    if bus is None or student.assigned_route is None or student.assigned_route.bus_id != bus.id:
+        return JsonResponse({"error": "Élève non autorisé pour ce bus."}, status=403)
+
+    ok, message = _undo_pickup(bus, student)
+    if not ok:
+        return JsonResponse({"error": message}, status=400)
+    return JsonResponse({
+        "ok": True,
+        "student": student.matricule,
+        "taken": student.assigned_route.students_taken,
+        "remaining": student.assigned_route.students_remaining,
+    })
 
 
 @login_required
@@ -2628,32 +2871,8 @@ def driver_dropoff_student(request, pk):
     if not student.is_taken:
         return JsonResponse({"error": "Élève déjà déposé."}, status=400)
 
-    student.is_taken = False
-    # Autorise une nouvelle notification d'approche le lendemain.
-    student.parent_notified = False
-    student.save(update_fields=["is_taken", "parent_notified"])
-
     route = student.assigned_route
-    route.students_taken = max(0, route.students_taken - 1)
-    route.students_remaining = min(route.students.count(), route.students_remaining + 1)
-    route.save(update_fields=["students_taken", "students_remaining"])
-
-    StudentTrip.objects.create(
-        student=student,
-        bus=bus,
-        event=StudentTrip.EVENT_DROPOFF,
-        latitude=bus.last_latitude,
-        longitude=bus.last_longitude,
-    )
-    ParentNotification.objects.create(
-        student=student,
-        bus=bus,
-        category=ParentNotification.CATEGORY_DROPOFF,
-        message=(
-            f"{student.prenom} a été déposé par le bus {bus.code_bus} "
-            f"à {timezone.localtime().strftime('%H:%M')}."
-        ),
-    )
+    _dropoff_students(bus, [student], route=route)
     messages.success(request, f"{student.prenom} a été déposé. Retour à l'école.")
     return redirect("routing:driver")
 
@@ -2694,10 +2913,15 @@ def driver_route_api(request):
     if bus is None:
         return JsonResponse({"error": "Aucun bus assigné."}, status=403)
     route = bus.routes.order_by("-created_at").first()
+    _reset_stale_pickups(route)
     absent = absent_student_ids()
     route_students = _route_students_in_order(route) if route else []
     students = [s for s in route_students if s.id not in absent]
     taken = sum(1 for s in students if s.is_taken)
+    stop_info = (
+        {rs.stop_id: rs for rs in route.stops.select_related("stop")}
+        if route else {}
+    )
     return JsonResponse(
         {
             "bus": {"code_bus": bus.code_bus},
@@ -2715,9 +2939,19 @@ def driver_route_api(request):
                     "longitude": s.longitude,
                     "taken": s.is_taken,
                     "absent": s.id in absent,
+                    "stop_id": s.bus_stop_id,
+                    "stop_name": (
+                        stop_info[s.bus_stop_id].stop.name
+                        if s.bus_stop_id in stop_info else None
+                    ),
+                    "stop_order": (
+                        stop_info[s.bus_stop_id].order
+                        if s.bus_stop_id in stop_info else None
+                    ),
                 }
                 for s in route_students
             ],
+            "stops": _stop_payload(route),
             "taken": taken,
             "remaining": len(students) - taken,
             "total": len(students),
@@ -2772,9 +3006,11 @@ def sync_offline_data(request):
 
     points = payload.get("points") or []
     incidents = payload.get("incidents") or []
-    if not isinstance(points, list) or not isinstance(incidents, list):
+    actions = payload.get("actions") or []
+    if not isinstance(points, list) or not isinstance(incidents, list) or not isinstance(actions, list):
         return JsonResponse(
-            {"error": "points et incidents doivent être des tableaux."}, status=400
+            {"error": "points, incidents et actions doivent être des tableaux."},
+            status=400,
         )
 
     # Validation basique des données.
@@ -2826,6 +3062,39 @@ def sync_offline_data(request):
     if incs:
         Incident.objects.bulk_create(incs, ignore_conflicts=True)
 
+    # Confirmations de ramassage/dépose accumulées hors-ligne. Les actions sont
+    # idempotentes : reprendre un élève déjà pris ou déposer un élève déjà
+    # déposé ne crée pas de doublon.
+    synced_actions = 0
+    for action in actions:
+        if not isinstance(action, dict):
+            continue
+        kind = action.get("kind")
+        if kind not in ("pickup", "dropoff", "undo_pickup"):
+            continue
+        try:
+            student_id = int(action.get("student_id"))
+        except (TypeError, ValueError):
+            continue
+        student = (
+            Student.objects.select_related("assigned_route")
+            .filter(pk=student_id, assigned_route__bus=bus)
+            .first()
+        )
+        if student is None:
+            continue
+        when = _parse_iso_timestamp(action.get("timestamp")) or timezone.now()
+        if kind == "pickup" and not student.is_taken:
+            _pickup_students(bus, [student], when=when)
+            synced_actions += 1
+        elif kind == "dropoff" and student.is_taken:
+            _dropoff_students(bus, [student], when=when)
+            synced_actions += 1
+        elif kind == "undo_pickup" and student.is_taken:
+            ok, _ = _undo_pickup(bus, student)
+            if ok:
+                synced_actions += 1
+
     # Mettre à jour le dernier état connu du bus.
     bus.driver_connected = True
     latest_log = GPSLog.objects.filter(bus=bus).order_by("-timestamp").first()
@@ -2843,6 +3112,7 @@ def sync_offline_data(request):
         "ok": True,
         "synced_points": len(logs),
         "synced_incidents": len(incs),
+        "synced_actions": synced_actions,
     })
 
 

@@ -30,6 +30,8 @@ urlpatterns = [
     # Chauffeur
     path("driver/", views.driver_view, name="driver"),
     path("driver/pickup/<int:pk>/", views.driver_pickup_student, name="driver_pickup"),
+    path("driver/pickup-stop/<int:pk>/", views.driver_pickup_stop, name="driver_pickup_stop"),
+    path("driver/undo-pickup/<int:pk>/", views.driver_undo_pickup, name="driver_undo_pickup"),
     path("driver/dropoff/<int:pk>/", views.driver_dropoff_student, name="driver_dropoff"),
     path("driver/carburant/", views.driver_fuel_add, name="driver_fuel_add"),
     path("driver/position/", views.driver_update_position, name="driver_position"),

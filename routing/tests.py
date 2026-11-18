@@ -466,6 +466,51 @@ class SyncOfflineDataTests(TestCase):
         resp = self.client.get("/api/sync-offline-data/")
         self.assertEqual(resp.status_code, 405)
 
+    def test_offline_pickup_action_is_applied_once(self):
+        student = Student.objects.create(
+            matricule="SYNCSTU", nom="Test", address="Adresse",
+            school=self.school, latitude=0.01, longitude=0.01,
+        )
+        student.refresh_from_db()
+        self.assertIsNotNone(student.assigned_route)
+        timestamp = timezone.now().isoformat()
+        resp = self._post({"actions": [
+            {"kind": "pickup", "student_id": student.pk, "timestamp": timestamp},
+            {"kind": "pickup", "student_id": student.pk, "timestamp": timestamp},
+        ]})
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json()["synced_actions"], 1)
+        student.refresh_from_db()
+        self.assertTrue(student.is_taken)
+        self.assertEqual(
+            StudentTrip.objects.filter(
+                student=student, event=StudentTrip.EVENT_PICKUP
+            ).count(),
+            1,
+        )
+
+    def test_offline_pickup_then_dropoff_keeps_chronology(self):
+        student = Student.objects.create(
+            matricule="SYNCSTU2", nom="Test", address="Adresse",
+            school=self.school, latitude=0.012, longitude=0.012,
+        )
+        student.refresh_from_db()
+        pickup_at = timezone.now() - timedelta(minutes=20)
+        dropoff_at = timezone.now() - timedelta(minutes=5)
+        resp = self._post({"actions": [
+            {"kind": "pickup", "student_id": student.pk, "timestamp": pickup_at.isoformat()},
+            {"kind": "dropoff", "student_id": student.pk, "timestamp": dropoff_at.isoformat()},
+        ]})
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json()["synced_actions"], 2)
+        student.refresh_from_db()
+        self.assertFalse(student.is_taken)
+        trips = list(student.trips.order_by("timestamp"))
+        self.assertEqual([t.event for t in trips], ["pickup", "dropoff"])
+        self.assertAlmostEqual(
+            trips[0].timestamp, pickup_at, delta=timedelta(seconds=1)
+        )
+
 
 class RealtimeApiTests(TestCase):
     """Endpoints de localisation temps réel : /api/bus/<id>/location/ et
@@ -1363,6 +1408,73 @@ class ExpansionFeaturesTests(TestCase):
         self.assertContains(page, "Derniers pleins")
 
     # ------------------------------------------------------------- Trajets
+    def test_grouped_pickup_marks_every_student_at_stop(self):
+        second = Student.objects.create(
+            matricule="EXPMAT2", school=self.school, prenom="Benoit",
+            nom="Test", address="Domicile test", latitude=0.0101,
+            longitude=0.01,
+        )
+        self.student.refresh_from_db()
+        second.refresh_from_db()
+        self.assertEqual(self.student.bus_stop_id, second.bus_stop_id)
+        self.assertIsNotNone(self.student.bus_stop_id)
+
+        self.client.force_login(self.driver)
+        resp = self.client.post(
+            f"/driver/pickup-stop/{self.student.bus_stop_id}/"
+        )
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertTrue(data["ok"])
+        self.assertEqual(
+            set(data["student_ids"]), {self.student.pk, second.pk}
+        )
+        self.student.refresh_from_db()
+        second.refresh_from_db()
+        self.assertTrue(self.student.is_taken)
+        self.assertTrue(second.is_taken)
+        self.assertEqual(
+            ParentNotification.objects.filter(
+                category=ParentNotification.CATEGORY_PICKUP,
+                student__in=[self.student, second],
+            ).count(),
+            2,
+        )
+
+    def test_undo_pickup_restores_student_and_removes_recent_trace(self):
+        self.client.force_login(self.driver)
+        resp = self.client.post(f"/driver/pickup/{self.student.pk}/")
+        self.assertEqual(resp.status_code, 200)
+        resp = self.client.post(f"/driver/undo-pickup/{self.student.pk}/")
+        self.assertEqual(resp.status_code, 200)
+        self.student.refresh_from_db()
+        self.assertFalse(self.student.is_taken)
+        self.assertFalse(
+            StudentTrip.objects.filter(
+                student=self.student, event=StudentTrip.EVENT_PICKUP
+            ).exists()
+        )
+        self.assertFalse(
+            ParentNotification.objects.filter(
+                student=self.student,
+                category=ParentNotification.CATEGORY_PICKUP,
+            ).exists()
+        )
+
+    def test_driver_page_resets_pickup_from_previous_day(self):
+        self.student.is_taken = True
+        self.student.save(update_fields=["is_taken"])
+        StudentTrip.objects.create(
+            student=self.student, bus=self.bus,
+            event=StudentTrip.EVENT_PICKUP,
+            timestamp=timezone.now() - timedelta(days=1),
+        )
+        self.client.force_login(self.driver)
+        resp = self.client.get("/driver/")
+        self.assertEqual(resp.status_code, 200)
+        self.student.refresh_from_db()
+        self.assertFalse(self.student.is_taken)
+
     def test_pickup_and_dropoff_create_history_and_notifications(self):
         self.client.force_login(self.driver)
         resp = self.client.post(f"/driver/pickup/{self.student.pk}/")
