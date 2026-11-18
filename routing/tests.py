@@ -691,6 +691,12 @@ class SeoAndHomeTests(TestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, f"<loc>{settings.SITE_URL}/</loc>")
 
+    def test_sitemap_excludes_private_login_page(self):
+        # /login/ est en noindex et interdit dans robots.txt : il ne doit pas
+        # être proposé à l'exploration via le sitemap.
+        resp = self.client.get("/sitemap.xml")
+        self.assertNotContains(resp, "/login/")
+
 
 class RegisterSchoolMapTests(TestCase):
     """Carte d'inscription d'école : le conteneur masqué (map-wrap) doit être

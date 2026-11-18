@@ -184,4 +184,8 @@ SITE_KEYWORDS = (
     'application bus scolaire, suivi bus GPS, tournées scolaires, transport élèves, '
     'logiciel école, RDC, Kinshasa, Lubumbashi, ESTECH, Scolaloop'
 )
-GOOGLE_SITE_VERIFICATION = os.environ.get('GOOGLE_SITE_VERIFICATION', '')
+GOOGLE_SITE_VERIFICATION = os.environ.get('GOOGLE_SITE_VERIFICATION', '').strip()
+# La variable contient parfois la balise complète copiée depuis Search Console
+# (« google-site-verification=... ») : seule la valeur du code est attendue.
+if GOOGLE_SITE_VERIFICATION.startswith('google-site-verification='):
+    GOOGLE_SITE_VERIFICATION = GOOGLE_SITE_VERIFICATION.split('=', 1)[1].strip()

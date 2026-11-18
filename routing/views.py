@@ -300,7 +300,11 @@ def robots_txt_view(request):
         f"Disallow: /sw.js\n"
         f"\nSitemap: {settings.SITE_URL}/sitemap.xml\n"
     )
-    return HttpResponse(content, content_type="text/plain; charset=utf-8")
+    response = HttpResponse(content, content_type="text/plain; charset=utf-8")
+    # Cloudflare met les .txt en cache 4 h : on force la revalidation pour que
+    # le sitemap annoncé reste toujours aligné sur le domaine canonique.
+    response["Cache-Control"] = "public, max-age=0, must-revalidate"
+    return response
 
 
 def sitemap_xml_view(request):
@@ -348,7 +352,9 @@ def sitemap_xml_view(request):
         xml += f'    <priority>{page["priority"]}</priority>\n'
         xml += '  </url>\n'
     xml += '</urlset>'
-    return HttpResponse(xml, content_type='application/xml; charset=utf-8')
+    response = HttpResponse(xml, content_type='application/xml; charset=utf-8')
+    response["Cache-Control"] = "public, max-age=3600"
+    return response
 
 
 def pwa_service_worker(request):
