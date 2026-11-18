@@ -6,6 +6,7 @@ from .models import (
     BusMaintenance,
     BusStop,
     CommissionValidation,
+    FuelRecord,
     GPSLog,
     Incident,
     PhysicalDemo,
@@ -109,6 +110,15 @@ class BusMaintenanceAdmin(admin.ModelAdmin):
         "bus", "service_type", "cost", "date_effectuee", "prochaine_echeance_km_ou_date",
     )
     list_filter = ("service_type", "bus")
+
+
+@admin.register(FuelRecord)
+class FuelRecordAdmin(admin.ModelAdmin):
+    list_display = (
+        "bus", "date_plein", "liters", "price_per_liter", "fuel_type", "odometer_km", "station",
+    )
+    list_filter = ("fuel_type", "bus", "date_plein")
+    search_fields = ("bus__code_bus", "station")
 
 
 # ---------------------------------------------------------------- Suivi commercial

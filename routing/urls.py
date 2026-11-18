@@ -47,6 +47,9 @@ urlpatterns = [
     # Maintenance flotte (école)
     path("dashboard/maintenance/ajouter/", views.maintenance_add, name="maintenance_add"),
     path("dashboard/maintenance/<int:pk>/supprimer/", views.maintenance_delete, name="maintenance_delete"),
+    # Carburant (école)
+    path("dashboard/carburant/ajouter/", views.fuel_add, name="fuel_add"),
+    path("dashboard/carburant/<int:pk>/supprimer/", views.fuel_delete, name="fuel_delete"),
     # Replay GPS (école)
     path("dashboard/replay/<int:bus_id>/", views.replay_view, name="replay"),
     path("statistiques/", views.statistics_view, name="statistics"),

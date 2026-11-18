@@ -1,5 +1,6 @@
 import json
 from datetime import timedelta
+from decimal import Decimal
 from pathlib import Path
 from unittest.mock import patch
 
@@ -13,6 +14,7 @@ from .models import (
     Bus,
     BusStop,
     CommissionValidation,
+    FuelRecord,
     GPSLog,
     Incident,
     PhysicalDemo,
@@ -1112,3 +1114,88 @@ class SalesTrackingTests(TestCase):
         self.assertEqual(csv.status_code, 200)
         self.assertIn("text/csv", csv["Content-Type"])
         self.assertIn("Commercial", csv.content.decode("utf-8-sig"))
+
+
+class FuelManagementTests(TestCase):
+    """Carburant : saisie d'un plein, calcul du coût et de la consommation
+    moyenne par bus, et cloisonnement entre écoles."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.school = School.objects.create(
+            code_ecole="FUEL1", name="École Carburant", latitude=0.0, longitude=0.0
+        )
+        cls.admin = User.objects.create_user(username="FUELADMIN", password="x")
+        cls.school.user = cls.admin
+        cls.school.save(update_fields=["user"])
+        cls.bus = Bus.objects.create(
+            code_bus="BUSF1", school=cls.school, capacity=20, driver_name="Jean"
+        )
+
+    def _login(self):
+        self.client.force_login(self.admin)
+
+    def _add_fill(self, **overrides):
+        data = {
+            "bus_id": self.bus.pk,
+            "date_plein": "2026-11-10",
+            "liters": "20",
+            "price_per_liter": "1.50",
+            "odometer_km": "1000",
+            "fuel_type": "Gasoil",
+            "station": "Total",
+        }
+        data.update(overrides)
+        return self.client.post("/dashboard/carburant/ajouter/", data)
+
+    def test_add_fuel_record(self):
+        self._login()
+        resp = self._add_fill()
+        self.assertEqual(resp.status_code, 302)
+        record = FuelRecord.objects.get()
+        self.assertEqual(record.bus, self.bus)
+        self.assertEqual(record.total_cost, Decimal("30.00"))
+
+    def test_dashboard_computes_consumption(self):
+        self._login()
+        self._add_fill(odometer_km="1000", liters="20")
+        self._add_fill(date_plein="2026-11-17", odometer_km="1400", liters="30")
+        self.assertEqual(FuelRecord.objects.count(), 2)
+        resp = self.client.get("/dashboard/")
+        self.assertEqual(resp.status_code, 200)
+        stat = next(s for s in resp.context["fuel_stats"] if s["bus"] == self.bus)
+        # 30 L pour 400 km → 7,5 L/100 km
+        self.assertEqual(stat["consumption"], 7.5)
+        self.assertEqual(stat["total_cost"], Decimal("75.00"))
+
+    def test_rejects_zero_liters(self):
+        self._login()
+        resp = self._add_fill(liters="0")
+        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(FuelRecord.objects.count(), 0)
+
+    def test_cannot_delete_record_of_other_school(self):
+        other_school = School.objects.create(
+            code_ecole="FUEL2", name="Autre école", latitude=1.0, longitude=1.0
+        )
+        other_bus = Bus.objects.create(code_bus="BUSF2", school=other_school, capacity=10)
+        record = FuelRecord.objects.create(
+            bus=other_bus, liters=Decimal("10"), price_per_liter=Decimal("1.50")
+        )
+        self._login()
+        resp = self.client.post(f"/dashboard/carburant/{record.pk}/supprimer/")
+        self.assertEqual(resp.status_code, 404)
+        self.assertTrue(FuelRecord.objects.filter(pk=record.pk).exists())
+
+    def test_overconsumption_alert(self):
+        self._login()
+        # 60 L pour 200 km → 30 L/100 km, au-dessus du seuil de 25.
+        self._add_fill(odometer_km="1000", liters="20")
+        self._add_fill(date_plein="2026-11-17", odometer_km="1200", liters="60")
+        resp = self.client.get("/dashboard/")
+        self.assertEqual(resp.status_code, 200)
+        stat = next(s for s in resp.context["fuel_stats"] if s["bus"] == self.bus)
+        self.assertEqual(stat["latest_consumption"], 30.0)
+        self.assertTrue(stat["overconsumption"])
+        self.assertEqual(len(resp.context["fuel_alerts"]), 1)
+        self.assertContains(resp, "Alerte de surconsommation")

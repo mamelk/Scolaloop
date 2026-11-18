@@ -15,6 +15,7 @@ from django.db import transaction
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
+from django.utils.dateparse import parse_date
 from openpyxl import load_workbook
 
 from .forms import BusForm, LoginForm, SchoolRegisterForm, StudentForm
@@ -24,6 +25,7 @@ from .models import (
     Absence,
     Bus,
     BusMaintenance,
+    FuelRecord,
     GPSLog,
     Incident,
     Route,
@@ -79,6 +81,74 @@ def _bus_statistics(school=None):
                 "taken": taken,
                 "remaining": remaining,
                 "pickup_rate": pickup_rate,
+            }
+        )
+    return stats
+
+
+def _fuel_statistics(buses):
+    """Par bus : pleins, litres, coût total/mois, consommation moyenne (L/100 km).
+
+    La consommation est estimée à partir des pleins renseignés avec kilométrage :
+    litres ajoutés entre le premier et le dernier relevé, divisés par la distance
+    parcourue. Elle reste vide tant que deux relevés ne sont pas disponibles.
+    """
+    today = timezone.localdate()
+    stats = []
+    for bus in buses:
+        records = list(bus.fuel_records.all())
+        total_liters = sum((r.liters for r in records), Decimal(0))
+        total_cost = sum((r.total_cost for r in records), Decimal(0))
+        month_cost = sum(
+            (
+                r.total_cost
+                for r in records
+                if r.date_plein.year == today.year and r.date_plein.month == today.month
+            ),
+            Decimal(0),
+        )
+
+        readings = sorted(
+            (r for r in records if r.odometer_km is not None),
+            key=lambda r: (r.odometer_km, r.date_plein),
+        )
+        consumption = None
+        latest_consumption = None
+        if len(readings) >= 2:
+            distance = readings[-1].odometer_km - readings[0].odometer_km
+            liters_used = sum((r.liters for r in readings[1:]), Decimal(0))
+            if distance > 0:
+                consumption = round(float(liters_used) / distance * 100, 1)
+
+            # Consommation du dernier intervalle (dernier plein complet) :
+            # litres du dernier plein ÷ distance depuis le relevé précédent.
+            last_distance = readings[-1].odometer_km - readings[-2].odometer_km
+            if last_distance > 0:
+                latest_consumption = round(
+                    float(readings[-1].liters) / last_distance * 100, 1
+                )
+
+        reference_consumption = (
+            latest_consumption if latest_consumption is not None else consumption
+        )
+        overconsumption = (
+            reference_consumption is not None
+            and reference_consumption > FuelRecord.CONSUMPTION_ALERT_L_PER_100KM
+        )
+
+        stats.append(
+            {
+                "bus": bus,
+                "fill_count": len(records),
+                "total_liters": total_liters,
+                "total_cost": total_cost,
+                "month_cost": month_cost,
+                "consumption": consumption,
+                "has_consumption": consumption is not None,
+                "latest_consumption": latest_consumption,
+                "has_latest_consumption": latest_consumption is not None,
+                "overconsumption": overconsumption,
+                "last_fill": records[0] if records else None,
             }
         )
     return stats
@@ -997,6 +1067,13 @@ def dashboard_view(request):
 
     incidents = Incident.objects.filter(bus__school=school, resolved=False).order_by("-timestamp")
     maintenance = BusMaintenance.objects.filter(bus__school=school)
+    fuel_records = (
+        FuelRecord.objects.filter(bus__school=school)
+        .select_related("bus")
+        .order_by("-date_plein", "-created_at")
+    )
+    fuel_stats = _fuel_statistics(buses)
+    fuel_alerts = [f for f in fuel_stats if f["overconsumption"]]
 
     # Contrainte d'affectation : élèves avec position GPS mais sans bus attribué
     # (dont les cas de surcapacité) — affichés en bannière d'alerte prioritaire.
@@ -1027,6 +1104,11 @@ def dashboard_view(request):
         "incidents": incidents,
         "maintenance": maintenance,
         "maintenance_types": [t[0] for t in BusMaintenance.SERVICE_TYPES],
+        "fuel_records": fuel_records,
+        "fuel_stats": fuel_stats,
+        "fuel_alerts": fuel_alerts,
+        "fuel_alert_threshold": FuelRecord.CONSUMPTION_ALERT_L_PER_100KM,
+        "fuel_types": [t[0] for t in FuelRecord.FUEL_TYPES],
         "absent_today": absent_student_ids(),
         "unassigned_count": unassigned_count,
         "overcapacity_count": overcapacity_count,
@@ -1119,6 +1201,95 @@ def maintenance_delete(request, pk):
     if request.method == "POST":
         record.delete()
         messages.success(request, "Enregistrement d'entretien supprimé.")
+    return redirect("routing:dashboard")
+
+
+# ---------------------------------------------------------------- Replay GPS (école)
+
+
+# ---------------------------------------------------------------- Carburant (école)
+
+
+@login_required
+def fuel_add(request):
+    """Enregistre un plein de carburant pour un bus de l'école."""
+    blocked = _school_scope_guard(request)
+    if blocked:
+        return blocked
+    if request.method != "POST":
+        return redirect("routing:dashboard")
+
+    school = _user_school(request.user)
+    bus = get_object_or_404(Bus, pk=request.POST.get("bus_id"), school=school)
+
+    try:
+        liters = Decimal(request.POST.get("liters") or 0)
+    except (TypeError, ValueError, ArithmeticError):
+        liters = Decimal(0)
+    if liters <= 0:
+        messages.error(request, "La quantité de carburant doit être supérieure à 0 litre.")
+        return redirect("routing:dashboard")
+
+    try:
+        price_per_liter = Decimal(request.POST.get("price_per_liter") or 0)
+    except (TypeError, ValueError, ArithmeticError):
+        price_per_liter = Decimal(0)
+    if price_per_liter < 0:
+        messages.error(request, "Le prix au litre ne peut pas être négatif.")
+        return redirect("routing:dashboard")
+
+    fuel_type = request.POST.get("fuel_type") or FuelRecord.FUEL_GASOIL
+    if fuel_type not in {t[0] for t in FuelRecord.FUEL_TYPES}:
+        messages.error(request, "Type de carburant invalide.")
+        return redirect("routing:dashboard")
+
+    odometer_raw = (request.POST.get("odometer_km") or "").strip()
+    odometer_km = None
+    if odometer_raw:
+        try:
+            odometer_km = int(odometer_raw)
+        except (TypeError, ValueError):
+            messages.error(request, "Le kilométrage doit être un nombre entier.")
+            return redirect("routing:dashboard")
+        if odometer_km < 0:
+            messages.error(request, "Le kilométrage ne peut pas être négatif.")
+            return redirect("routing:dashboard")
+
+    date_raw = request.POST.get("date_plein") or ""
+    date_plein = parse_date(date_raw) if date_raw else None
+    if date_plein is None:
+        date_plein = timezone.localdate()
+
+    FuelRecord.objects.create(
+        bus=bus,
+        date_plein=date_plein,
+        liters=liters,
+        price_per_liter=price_per_liter,
+        odometer_km=odometer_km,
+        fuel_type=fuel_type,
+        station=request.POST.get("station", "").strip(),
+        note=request.POST.get("note", "").strip(),
+    )
+    messages.success(
+        request,
+        f"Plein de {liters} L enregistré pour {bus.code_bus} "
+        f"({(liters * price_per_liter).quantize(Decimal('0.01'))} $).",
+    )
+    return redirect("routing:dashboard")
+
+
+@login_required
+def fuel_delete(request, pk):
+    """Supprime un plein de carburant."""
+    blocked = _school_scope_guard(request)
+    if blocked:
+        return blocked
+    record = get_object_or_404(
+        FuelRecord, pk=pk, bus__school=_user_school(request.user)
+    )
+    if request.method == "POST":
+        record.delete()
+        messages.success(request, "Plein supprimé.")
     return redirect("routing:dashboard")
 
 

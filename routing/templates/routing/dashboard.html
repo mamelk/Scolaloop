@@ -110,6 +110,12 @@
             border-left: 4px solid #e67e22; background: #fff8f0;
         }
         .incident-item.speed { border-left-color: #dc2626; background: #fef2f2; }
+        .fuel-alert {
+            background: #fef2f2; border-left: 4px solid #dc2626; border-radius: 10px;
+            padding: 0.8rem 1rem; margin-bottom: 1rem; font-size: 0.9rem; color: #7f1d1d;
+        }
+        .fuel-alert strong { display: block; margin-bottom: 0.25rem; }
+        .badge-alert { background: #fdecea; color: #991b1b; }
         .incident-head { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
         .muted { color: #6c757d; font-size: 0.8rem; }
         .maintenance-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 0.8rem; }
@@ -309,6 +315,10 @@
             <div class="kpi-lbl">🚨 Excès de vitesse</div>
             <div class="kpi-val" id="live-speed-alerts">0</div>
         </div>
+        <div class="kpi-card kpi-alert">
+            <div class="kpi-lbl">⛽ Surconsommation</div>
+            <div class="kpi-val">{{ fuel_alerts|length }}</div>
+        </div>
         <div class="kpi-card">
             <div class="kpi-lbl">⏱️ En retard</div>
             <div class="kpi-val" id="live-delayed">{{ live_delayed }}</div>
@@ -326,6 +336,7 @@
         <button class="tab-btn" data-tab="stats">📊 Statistiques</button>
         <button class="tab-btn" data-tab="incidents">🚨 Incidents & Alertes</button>
         <button class="tab-btn" data-tab="maintenance">🛠️ Maintenance Flotte</button>
+        <button class="tab-btn" data-tab="fuel">⛽ Carburant</button>
     </nav>
 
     <!-- ============================ Onglet Carte & Direct ============================ -->
@@ -598,6 +609,125 @@
         </div>
         {% else %}
         <div class="card"><p class="empty">Aucun entretien enregistré pour le moment.</p></div>
+        {% endif %}
+    </section>
+
+    <!-- ============================ Onglet Carburant ============================ -->
+    <section id="tab-fuel" class="tab-panel">
+        {% if fuel_alerts %}
+        <div class="fuel-alert">
+            <strong>⚠️ Alerte de surconsommation (seuil : {{ fuel_alert_threshold }} L/100 km)</strong>
+            {% for f in fuel_alerts %}
+                Bus {{ f.bus.code_bus }} : {{ f.latest_consumption|default:f.consumption }} L/100 km enregistrés sur le dernier plein{% if not forloop.last %} · {% endif %}
+            {% endfor %}
+        </div>
+        {% endif %}
+        <div class="card">
+            <h2>⛽ Enregistrer un plein de carburant</h2>
+            <p class="hint">Renseignez le kilométrage à chaque plein : la consommation moyenne du bus (L/100 km) est calculée automatiquement à partir de deux relevés.</p>
+            <form method="post" action="{% url 'routing:fuel_add' %}">
+                {% csrf_token %}
+                <div class="maintenance-grid">
+                    <div>
+                        <label for="fuel-bus">Bus</label>
+                        <select id="fuel-bus" name="bus_id" required>
+                            {% for b in buses %}
+                            <option value="{{ b.pk }}">{{ b.code_bus }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div>
+                        <label for="fuel-date">Date du plein</label>
+                        <input type="date" id="fuel-date" name="date_plein" value="{% now 'Y-m-d' %}">
+                    </div>
+                    <div>
+                        <label for="fuel-liters">Quantité (litres)</label>
+                        <input type="number" id="fuel-liters" name="liters" step="0.01" min="0.01" required>
+                    </div>
+                    <div>
+                        <label for="fuel-price">Prix au litre ($)</label>
+                        <input type="number" id="fuel-price" name="price_per_liter" step="0.01" min="0" value="0">
+                    </div>
+                    <div>
+                        <label for="fuel-odometer">Kilométrage (km)</label>
+                        <input type="number" id="fuel-odometer" name="odometer_km" step="1" min="0" placeholder="Ex : 45230">
+                    </div>
+                    <div>
+                        <label for="fuel-type">Type de carburant</label>
+                        <select id="fuel-type" name="fuel_type">
+                            {% for t in fuel_types %}
+                            <option value="{{ t }}">{{ t }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div>
+                        <label for="fuel-station">Station-service</label>
+                        <input type="text" id="fuel-station" name="station" placeholder="Ex : Total Kintambo">
+                    </div>
+                    <div>
+                        <label for="fuel-note">Remarque</label>
+                        <input type="text" id="fuel-note" name="note" placeholder="Optionnel">
+                    </div>
+                </div>
+                <button type="submit" class="btn" style="margin-top:0.8rem;">➕ Enregistrer le plein</button>
+            </form>
+        </div>
+
+        {% if fuel_stats %}
+        <div class="stats-grid">
+            {% for f in fuel_stats %}
+            <div class="card stat-card">
+                <h2>🚌 {{ f.bus.code_bus }} {% if f.overconsumption %}<span class="badge badge-alert">⚠️ Surconsommation</span>{% endif %}</h2>
+                <div class="stat-row"><span>Pleins enregistrés</span><span>{{ f.fill_count }}</span></div>
+                <div class="stat-row"><span>Total litres</span><span>{{ f.total_liters|floatformat:2 }} L</span></div>
+                <div class="stat-row"><span>Coût total</span><span>{{ f.total_cost|floatformat:2 }} $</span></div>
+                <div class="stat-row"><span>Coût ce mois</span><span class="big">{{ f.month_cost|floatformat:2 }} $</span></div>
+                <div class="stat-row">
+                    <span>Consommation moyenne</span>
+                    <span>{% if f.has_consumption %}{{ f.consumption }} L/100 km{% else %}—{% endif %}</span>
+                </div>
+                <div class="stat-row">
+                    <span>Dernier plein (L/100 km)</span>
+                    <span>{% if f.has_latest_consumption %}{{ f.latest_consumption }}{% else %}—{% endif %}</span>
+                </div>
+                <div class="stat-row"><span>Dernier plein</span><span>{% if f.last_fill %}{{ f.last_fill.date_plein|date:"d/m/Y" }}{% else %}—{% endif %}</span></div>
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        {% if fuel_records %}
+        <div class="card">
+            <h2>Historique des pleins</h2>
+            <div class="table-wrap">
+            <table>
+                <thead><tr><th>Bus</th><th>Date</th><th>Carburant</th><th>Litres</th><th>Prix/L</th><th>Coût</th><th>Kilométrage</th><th>Station</th><th>Action</th></tr></thead>
+                <tbody>
+                    {% for r in fuel_records %}
+                    <tr>
+                        <td>{{ r.bus.code_bus }}</td>
+                        <td>{{ r.date_plein|date:"d/m/Y" }}</td>
+                        <td>{{ r.fuel_type }}</td>
+                        <td>{{ r.liters|floatformat:2 }} L</td>
+                        <td>{{ r.price_per_liter|floatformat:2 }} $</td>
+                        <td>{{ r.total_cost|floatformat:2 }} $</td>
+                        <td>{% if r.odometer_km is not None %}{{ r.odometer_km }} km{% else %}—{% endif %}</td>
+                        <td>{{ r.station|default:"—" }}</td>
+                        <td>
+                            <form method="post" action="{% url 'routing:fuel_delete' r.pk %}"
+                                  onsubmit="return confirm('Supprimer ce plein de carburant ?');">
+                                {% csrf_token %}
+                                <button type="submit" class="btn btn-sm btn-danger">Supprimer</button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            </div>
+        </div>
+        {% else %}
+        <div class="card"><p class="empty">Aucun plein enregistré pour le moment.</p></div>
         {% endif %}
     </section>
 

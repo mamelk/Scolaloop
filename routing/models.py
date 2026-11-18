@@ -335,6 +335,60 @@ class BusMaintenance(models.Model):
         return f"{self.service_type} — {self.bus.code_bus}"
 
 
+class FuelRecord(models.Model):
+    """Plein de carburant d'un bus (litres, prix au litre, kilométrage).
+
+    Les pleins successifs avec kilométrage permettent de calculer la
+    consommation moyenne du bus (L/100 km) et le coût carburant de la flotte.
+    """
+
+    # Seuil d'alerte de surconsommation d'un bus (L/100 km), ajustable ici.
+    CONSUMPTION_ALERT_L_PER_100KM = 25.0
+
+    FUEL_GASOIL = "Gasoil"
+    FUEL_ESSENCE = "Essence"
+    FUEL_TYPES = [
+        (FUEL_GASOIL, "Gasoil"),
+        (FUEL_ESSENCE, "Essence"),
+    ]
+
+    bus = models.ForeignKey(Bus, on_delete=models.CASCADE, related_name="fuel_records")
+    date_plein = models.DateField(default=_local_date, help_text="Date du plein.")
+    liters = models.DecimalField(
+        max_digits=8,
+        decimal_places=2,
+        validators=[MinValueValidator(Decimal("0.01"))],
+        help_text="Quantité de carburant ajoutée (litres).",
+    )
+    price_per_liter = models.DecimalField(
+        max_digits=8,
+        decimal_places=2,
+        default=Decimal(0),
+        validators=[MinValueValidator(Decimal(0))],
+        help_text="Prix du litre au moment du plein ($).",
+    )
+    odometer_km = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        help_text="Kilométrage du bus au moment du plein (pour la consommation).",
+    )
+    fuel_type = models.CharField(max_length=20, choices=FUEL_TYPES, default=FUEL_GASOIL)
+    station = models.CharField(max_length=100, blank=True, help_text="Station-service (optionnel).")
+    note = models.CharField(max_length=255, blank=True, help_text="Remarque libre (optionnel).")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-date_plein", "-created_at"]
+
+    def __str__(self):
+        return f"Plein {self.bus.code_bus} — {self.liters} L le {self.date_plein}"
+
+    @property
+    def total_cost(self):
+        """Coût total du plein (litres × prix au litre)."""
+        return (self.liters * self.price_per_liter).quantize(Decimal("0.01"))
+
+
 # ---------------------------------------------------------------- Suivi commercial (ventes)
 
 
