@@ -36,6 +36,7 @@ from .models import (
     StudentTrip,
 )
 from .services import (
+    CLUSTER_RADIUS_METERS,
     DELAY_THRESHOLD_MINUTES,
     SPEED_LIMIT_KMH,
     absent_student_ids,
@@ -2339,27 +2340,45 @@ def school_fleet_api(request):
 
 
 def _route_students_in_order(route):
-    """Retourne les élèves du trajet, ordonnés selon l'ordre des arrêts.
+    """Retourne les élèves du trajet groupés par arrêt, dans l'ordre de passage.
 
-    Repli : si le trajet n'a pas d'arrêts (ou si des élèves ne sont couverts
-    par aucun arrêt), ils sont ajoutés à la fin dans un ordre stable.
+    Les élèves d'un même arrêt commun se suivent : le chauffeur s'arrête une
+    seule fois et prend tout le groupe. Repli de proximité pour les trajets
+    calculés avant l'enregistrement de l'arrêt de chaque élève.
     """
     route_students = list(route.students.all())
     if not route_students:
         return []
+
+    def distance_m(student, stop):
+        return haversine_km(
+            student.latitude, student.longitude, stop.latitude, stop.longitude
+        ) * 1000
+
     ordered = []
+    seen = set()
     for rs in route.stops.order_by("order"):
         stop = rs.stop
-        best = min(
-            route_students,
-            key=lambda s: haversine_km(
-                s.latitude, s.longitude, stop.latitude, stop.longitude
-            ),
-        )
-        if best not in ordered:
-            ordered.append(best)
+        members = [
+            s for s in route_students
+            if s.pk not in seen and s.bus_stop_id == stop.pk
+        ]
+        if not members:
+            members = [
+                s for s in route_students
+                if s.pk not in seen and distance_m(s, stop) <= CLUSTER_RADIUS_METERS
+            ]
+        members.sort(key=lambda s: distance_m(s, stop))
+        if not members:
+            remaining = [s for s in route_students if s.pk not in seen]
+            if remaining:
+                members = [min(remaining, key=lambda s: distance_m(s, stop))]
+        for student in members:
+            ordered.append(student)
+            seen.add(student.pk)
+
     for s in route_students:
-        if s not in ordered:
+        if s.pk not in seen:
             ordered.append(s)
     return ordered
 

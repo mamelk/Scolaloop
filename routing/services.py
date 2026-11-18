@@ -203,10 +203,17 @@ def auto_assign_student_to_bus(student):
     """
     if student.latitude is None or student.longitude is None:
         # Pas de GPS : reste non affecté (l'école ou le parent devra définir la maison).
-        if student.assigned_route_id is not None or student.overcapacity_alert:
+        if (
+            student.assigned_route_id is not None
+            or student.bus_stop_id is not None
+            or student.overcapacity_alert
+        ):
             student.assigned_route = None
+            student.bus_stop = None
             student.overcapacity_alert = False
-            student.save(update_fields=["assigned_route", "overcapacity_alert"])
+            student.save(
+                update_fields=["assigned_route", "bus_stop", "overcapacity_alert"]
+            )
         return None
 
     school = student.school
@@ -225,11 +232,18 @@ def auto_assign_student_to_bus(student):
 
     if best is None:
         # Aucun bus actif avec de la place (ou aucun trajet défini) : alerte admin.
-        changed = student.assigned_route_id is not None or not student.overcapacity_alert
+        changed = (
+            student.assigned_route_id is not None
+            or student.bus_stop_id is not None
+            or not student.overcapacity_alert
+        )
         student.assigned_route = None
+        student.bus_stop = None
         student.overcapacity_alert = True
         if changed:
-            student.save(update_fields=["assigned_route", "overcapacity_alert"])
+            student.save(
+                update_fields=["assigned_route", "bus_stop", "overcapacity_alert"]
+            )
         return None
 
     _, bus, route = best
@@ -258,6 +272,44 @@ def _eligible_students(school):
     )
     absent = absent_student_ids()
     return [s for s in students if s.id not in absent]
+
+
+def _replace_route_stops(route, school, clusters):
+    """Remplace les arrêts d'une route par un arrêt propre à chaque groupe.
+
+    Un arrêt n'est jamais réutilisé par son nom : deux écoles (ou deux bus)
+    peuvent avoir un « Arrêt Zone 1 » sans partager le même point GPS. Les
+    anciens arrêts devenus orphelins sont supprimés.
+
+    Retourne une liste de tuples (BusStop, cluster).
+    """
+    old_stop_ids = list(route.stops.values_list("stop_id", flat=True))
+    route.stops.all().delete()
+
+    grouped_stops = []
+    for order, cluster in enumerate(clusters, start=1):
+        centroid_lat, centroid_lon = cluster['centroid']
+        n_students = len(cluster['students'])
+        if n_students > 1:
+            stop_name = f"Arrêt Zone {order} ({n_students} élèves)"
+        else:
+            s = cluster['students'][0]
+            stop_name = f"Arrêt {s.prenom} {s.nom}"
+
+        stop = BusStop.objects.create(
+            school=school,
+            name=stop_name,
+            latitude=centroid_lat,
+            longitude=centroid_lon,
+        )
+        RouteStop.objects.create(route=route, stop=stop, order=order)
+        grouped_stops.append((stop, cluster))
+
+    if old_stop_ids:
+        BusStop.objects.filter(
+            pk__in=old_stop_ids, routestop__isnull=True
+        ).delete()
+    return grouped_stops
 
 
 def _build_route(school, bus, ordered, route=None):
@@ -297,7 +349,6 @@ def _build_route(school, bus, ordered, route=None):
             students_remaining=sum(1 for s in ordered if not s.is_taken),
         )
     else:
-        route.stops.all().delete()  # réordonne les arrêts existants
         route.total_distance_km = round(total_km, 2)
         route.estimated_duration_minutes = round(total_km / AVERAGE_SPEED_KMH * 60, 1)
         route.students_taken = sum(1 for s in ordered if s.is_taken)
@@ -313,37 +364,17 @@ def _build_route(school, bus, ordered, route=None):
 
     # --- Création des arrêts groupés ---
     all_students_update = []
-    for order, cluster in enumerate(clusters, start=1):
-        centroid_lat, centroid_lon = cluster['centroid']
-        n_students = len(cluster['students'])
-        # Nom de l'arrêt : "Arrêt Zone 1 (3 élèves)" ou "Arrêt Dupont (1 élève)"
-        if n_students > 1:
-            stop_name = f"Arrêt Zone {order} ({n_students} élèves)"
-        else:
-            s = cluster['students'][0]
-            stop_name = f"Arrêt {s.prenom} {s.nom}"
-
-        stop, _ = BusStop.objects.get_or_create(
-            name=stop_name,
-            defaults={
-                "latitude": centroid_lat,
-                "longitude": centroid_lon,
-            },
-        )
-        # Synchroniser les coordonnées si le centroïde a changé
-        if stop.latitude != centroid_lat or stop.longitude != centroid_lon:
-            stop.latitude = centroid_lat
-            stop.longitude = centroid_lon
-            stop.save(update_fields=["latitude", "longitude"])
-        RouteStop.objects.create(route=route, stop=stop, order=order)
-
-        # Tous les élèves du cluster sont rattachés au trajet
+    for stop, cluster in _replace_route_stops(route, school, clusters):
+        # Tous les élèves du cluster partagent le même arrêt et le même trajet.
         for student in cluster['students']:
             student.assigned_route = route
+            student.bus_stop = stop
             student.overcapacity_alert = False
             all_students_update.append(student)
 
-    Student.objects.bulk_update(all_students_update, ["assigned_route", "overcapacity_alert"])
+    Student.objects.bulk_update(
+        all_students_update, ["assigned_route", "bus_stop", "overcapacity_alert"]
+    )
     return route
 
 
@@ -594,6 +625,9 @@ def recalculate_school_routes(school):
         # Plus aucun élève éligible : on nettoie les feuilles de route.
         with transaction.atomic():
             Route.objects.filter(school=school).delete()
+            Student.objects.filter(school=school).update(
+                assigned_route=None, bus_stop=None
+            )
         return []
     buses = list(
         Bus.objects.filter(school=school, is_in_service=True).order_by("code_bus")
@@ -603,7 +637,7 @@ def recalculate_school_routes(school):
         with transaction.atomic():
             Route.objects.filter(school=school).delete()
             Student.objects.filter(pk__in=[s.pk for s in students]).update(
-                assigned_route=None, overcapacity_alert=True
+                assigned_route=None, bus_stop=None, overcapacity_alert=True
             )
         return []
 
@@ -626,7 +660,7 @@ def recalculate_school_routes(school):
         unassigned = [s for s in students if s.pk not in assigned_pks]
         if unassigned:
             Student.objects.filter(pk__in=[s.pk for s in unassigned]).update(
-                assigned_route=None, overcapacity_alert=True
+                assigned_route=None, bus_stop=None, overcapacity_alert=True
             )
 
     # Itinéraire routier réel (OSRM) — repli sur les lignes droites.
@@ -1016,33 +1050,15 @@ def reoptimize_bus_route(bus, timeout=12):
     clusters.sort(key=lambda c: haversine_km(depot[0], depot[1], c['centroid'][0], c['centroid'][1]))
 
     with transaction.atomic():
-        # Réordonne les arrêts du trajet existant (ou en crée).
-        route.stops.all().delete()
         all_students_update = []
-        for order, cluster in enumerate(clusters, start=1):
-            centroid_lat, centroid_lon = cluster['centroid']
-            n_students = len(cluster['students'])
-            if n_students > 1:
-                stop_name = f"Arrêt Zone {order} ({n_students} élèves)"
-            else:
-                s = cluster['students'][0]
-                stop_name = f"Arrêt {s.prenom} {s.nom}"
-            stop, _ = BusStop.objects.get_or_create(
-                name=stop_name,
-                defaults={
-                    "latitude": centroid_lat,
-                    "longitude": centroid_lon,
-                },
-            )
-            if stop.latitude != centroid_lat or stop.longitude != centroid_lon:
-                stop.latitude = centroid_lat
-                stop.longitude = centroid_lon
-                stop.save(update_fields=["latitude", "longitude"])
-            RouteStop.objects.create(route=route, stop=stop, order=order)
+        for stop, cluster in _replace_route_stops(route, school, clusters):
             for student in cluster['students']:
                 student.assigned_route = route
+                student.bus_stop = stop
                 all_students_update.append(student)
-        Student.objects.bulk_update(all_students_update, ["assigned_route"])
+        Student.objects.bulk_update(
+            all_students_update, ["assigned_route", "bus_stop"]
+        )
 
         # Boucle fermée École → arrêts → École + compteurs de ramassage.
         ordered_points = [depot] + [c['centroid'] for c in clusters] + [depot]

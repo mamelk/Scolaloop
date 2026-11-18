@@ -116,6 +116,14 @@ class Student(models.Model):
         blank=True,
         related_name="students",
     )
+    bus_stop = models.ForeignKey(
+        "BusStop",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="students",
+        help_text="Arrêt commun auquel l'élève est rattaché pour sa tournée.",
+    )
 
     class Meta:
         ordering = ["nom", "prenom"]
@@ -210,6 +218,14 @@ class Bus(models.Model):
 
 
 class BusStop(models.Model):
+    school = models.ForeignKey(
+        School,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="bus_stops",
+        help_text="École propriétaire de l'arrêt.",
+    )
     name = models.CharField(max_length=100)
     latitude = models.FloatField(validators=LATITUDE_VALIDATORS)
     longitude = models.FloatField(validators=LONGITUDE_VALIDATORS)

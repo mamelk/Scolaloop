@@ -220,6 +220,69 @@ class AutoAssignTests(TestCase):
         self.assertEqual({s["id"] for s in data["students"]}, {s2.id, s3.id})
         self.assertEqual(data["total"], 2)
 
+    def test_driver_order_keeps_common_stop_groups_together(self):
+        school = School.objects.create(
+            code_ecole="ECOG", name="École Groupes", latitude=0.0, longitude=0.0
+        )
+        bus = Bus.objects.create(code_bus="BUSG", school=school, capacity=10)
+        driver = User.objects.create_user(username="DRVG", password="x")
+        bus.driver_user = driver
+        bus.save(update_fields=["driver_user"])
+        for matricule, longitude in (
+            ("G1", 0.0010), ("G2", 0.0011), ("G3", 0.0100), ("G4", 0.0101),
+        ):
+            Student.objects.create(
+                matricule=matricule, nom=matricule, address="Adresse",
+                school=school, latitude=0.0, longitude=longitude,
+            )
+
+        self.client.force_login(driver)
+        resp = self.client.get("/api/driver/route/")
+        self.assertEqual(resp.status_code, 200)
+        ids = [s["id"] for s in resp.json()["students"]]
+        self.assertEqual(len(ids), 4)
+        first_group = Student.objects.filter(pk__in=ids[:2])
+        second_group = Student.objects.filter(pk__in=ids[2:])
+        # Les deux élèves d'un même arrêt se suivent dans la liste chauffeur.
+        self.assertEqual(first_group.values("bus_stop_id").distinct().count(), 1)
+        self.assertEqual(second_group.values("bus_stop_id").distinct().count(), 1)
+        self.assertNotEqual(
+            first_group.first().bus_stop_id, second_group.first().bus_stop_id
+        )
+
+    def test_stops_are_isolated_between_schools(self):
+        school_a = School.objects.create(
+            code_ecole="ECOA2", name="École A2", latitude=0.0, longitude=0.0
+        )
+        bus_a = Bus.objects.create(code_bus="BUSGA", school=school_a, capacity=5)
+        for i in range(2):
+            Student.objects.create(
+                matricule=f"A{i}", nom="Test", address="Adresse",
+                school=school_a, latitude=0.0, longitude=0.0010 + i * 0.0002,
+            )
+        stop_a = bus_a.routes.order_by("-created_at").first().stops.get().stop
+        stop_a_coords = (stop_a.latitude, stop_a.longitude)
+
+        school_b = School.objects.create(
+            code_ecole="ECOB", name="École B", latitude=10.0, longitude=10.0
+        )
+        bus_b = Bus.objects.create(code_bus="BUSGB", school=school_b, capacity=5)
+        for i in range(2):
+            Student.objects.create(
+                matricule=f"B{i}", nom="Test", address="Adresse",
+                school=school_b, latitude=10.0, longitude=10.001 + i * 0.0002,
+            )
+
+        stop_b = bus_b.routes.order_by("-created_at").first().stops.get().stop
+        stop_a.refresh_from_db()
+        self.assertEqual(stop_a.school_id, school_a.pk)
+        self.assertEqual(stop_b.school_id, school_b.pk)
+        self.assertNotEqual(stop_a.pk, stop_b.pk)
+        # L'arrêt de l'école A n'a pas été déplacé par le calcul de l'école B.
+        self.assertAlmostEqual(stop_a.latitude, stop_a_coords[0])
+        self.assertAlmostEqual(stop_a.longitude, stop_a_coords[1])
+        self.assertAlmostEqual(stop_a.longitude, 0.0011, places=5)
+
     def test_dashboard_shows_alert_when_students_unassigned(self):
         school2 = School.objects.create(
             code_ecole="ECO2", name="École 2", latitude=0.0, longitude=0.0
