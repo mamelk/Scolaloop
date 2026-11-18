@@ -312,7 +312,10 @@
                 <input type="number" name="price_per_liter" step="0.01" min="0" value="0" style="width:100%; padding:0.5rem; border-radius:8px; border:1px solid #334155; background:#0f172a; color:var(--text);">
             </label>
             <label style="font-size:0.75rem; opacity:0.85;">Kilométrage
-                <input type="number" name="odometer_km" min="0" step="1" style="width:100%; padding:0.5rem; border-radius:8px; border:1px solid #334155; background:#0f172a; color:var(--text);">
+                <input type="number" name="odometer_km" min="0" step="1" placeholder="Ex : 45230" style="width:100%; padding:0.5rem; border-radius:8px; border:1px solid #334155; background:#0f172a; color:var(--text);">
+                <small style="display:block; margin-top:0.2rem; opacity:0.7; font-weight:400;">
+                    {% if bus.last_odometer_record %}Dernier relevé : {{ bus.last_odometer_record.odometer_km }} km le {{ bus.last_odometer_record.date_plein|date:"d/m/Y" }}{% else %}Aucun relevé connu{% endif %}
+                </small>
             </label>
             <label style="font-size:0.75rem; opacity:0.85;">Carburant
                 <select name="fuel_type" style="width:100%; padding:0.5rem; border-radius:8px; border:1px solid #334155; background:#0f172a; color:var(--text);">

@@ -902,7 +902,7 @@
                         <label for="fuel-bus">Bus</label>
                         <select id="fuel-bus" name="bus_id" required>
                             {% for b in buses %}
-                            <option value="{{ b.pk }}">{{ b.code_bus }}</option>
+                            <option value="{{ b.pk }}" data-last-km="{{ b.last_odometer_record.odometer_km|default:'' }}" data-last-date="{{ b.last_odometer_record.date_plein|date:'d/m/Y' }}">{{ b.code_bus }}</option>
                             {% endfor %}
                         </select>
                     </div>
@@ -921,6 +921,9 @@
                     <div>
                         <label for="fuel-odometer">Kilométrage (km)</label>
                         <input type="number" id="fuel-odometer" name="odometer_km" step="1" min="0" placeholder="Ex : 45230">
+                        <p class="hint" id="fuel-odometer-hint" style="margin:0.3rem 0 0; font-size:0.8rem;">
+                            {% with last=buses.0.last_odometer_record %}{% if last %}Dernier relevé connu : {{ last.odometer_km }} km le {{ last.date_plein|date:"d/m/Y" }}.{% else %}Aucun kilométrage enregistré pour ce bus.{% endif %}{% endwith %}
+                        </p>
                     </div>
                     <div>
                         <label for="fuel-type">Type de carburant</label>
@@ -941,6 +944,24 @@
                 </div>
                 <button type="submit" class="btn" style="margin-top:0.8rem;">➕ Enregistrer le plein</button>
             </form>
+            <script>
+            (function () {
+                const busSelect = document.getElementById("fuel-bus");
+                const hint = document.getElementById("fuel-odometer-hint");
+                if (!busSelect || !hint) return;
+                function updateOdometerHint() {
+                    const option = busSelect.options[busSelect.selectedIndex];
+                    if (!option) return;
+                    const km = option.dataset.lastKm;
+                    const date = option.dataset.lastDate;
+                    hint.textContent = km
+                        ? "Dernier relevé connu : " + km + " km" + (date ? " le " + date : "") + ". Saisissez le compteur actuel."
+                        : "Aucun kilométrage enregistré pour ce bus. Saisissez le compteur actuel.";
+                }
+                busSelect.addEventListener("change", updateOdometerHint);
+                updateOdometerHint();
+            })();
+            </script>
         </div>
 
         {% if fuel_stats %}

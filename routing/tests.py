@@ -1183,6 +1183,28 @@ class FuelManagementTests(TestCase):
         self.assertEqual(resp.status_code, 302)
         self.assertEqual(FuelRecord.objects.count(), 0)
 
+    def test_rejects_odometer_lower_than_previous(self):
+        self._login()
+        self._add_fill(date_plein="2026-11-10", odometer_km="1000")
+        resp = self._add_fill(date_plein="2026-11-17", odometer_km="900")
+        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(FuelRecord.objects.count(), 1)
+        self.assertEqual(FuelRecord.objects.get().odometer_km, 1000)
+
+    def test_allows_backdated_odometer_before_first_reading(self):
+        self._login()
+        self._add_fill(date_plein="2026-11-17", odometer_km="2000")
+        self._add_fill(date_plein="2026-11-10", odometer_km="1500")
+        self.assertEqual(FuelRecord.objects.count(), 2)
+
+    def test_dashboard_shows_last_known_odometer(self):
+        self._login()
+        self._add_fill(odometer_km="12345")
+        resp = self.client.get("/dashboard/")
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "12345")
+        self.assertContains(resp, "Dernier relevé connu")
+
     def test_cannot_delete_record_of_other_school(self):
         other_school = School.objects.create(
             code_ecole="FUEL2", name="Autre école", latitude=1.0, longitude=1.0

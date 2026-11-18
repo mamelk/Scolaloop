@@ -1320,7 +1320,7 @@ def maintenance_delete(request, pk):
 # ---------------------------------------------------------------- Carburant (école)
 
 
-def _fuel_form_values(request):
+def _fuel_form_values(request, bus):
     """Valide les champs d'un plein. Retourne (données, message d'erreur)."""
     try:
         liters = Decimal(request.POST.get("liters") or 0)
@@ -1340,6 +1340,11 @@ def _fuel_form_values(request):
     if fuel_type not in {t[0] for t in FuelRecord.FUEL_TYPES}:
         return None, "Type de carburant invalide."
 
+    date_raw = request.POST.get("date_plein") or ""
+    date_plein = parse_date(date_raw) if date_raw else None
+    if date_plein is None:
+        date_plein = timezone.localdate()
+
     odometer_raw = (request.POST.get("odometer_km") or "").strip()
     odometer_km = None
     if odometer_raw:
@@ -1350,10 +1355,15 @@ def _fuel_form_values(request):
         if odometer_km < 0:
             return None, "Le kilométrage ne peut pas être négatif."
 
-    date_raw = request.POST.get("date_plein") or ""
-    date_plein = parse_date(date_raw) if date_raw else None
-    if date_plein is None:
-        date_plein = timezone.localdate()
+        # Garde-fou : le compteur d'un bus ne recule pas. On compare au dernier
+        # relevé daté d'avant ce plein (les saisies antidatées restent permises).
+        previous = bus.previous_odometer_record(date_plein)
+        if previous and odometer_km < previous.odometer_km:
+            return None, (
+                f"Le kilométrage ({odometer_km} km) est inférieur au dernier "
+                f"relevé du bus {bus.code_bus} ({previous.odometer_km} km le "
+                f"{previous.date_plein:%d/%m/%Y}). Vérifiez le compteur."
+            )
 
     return {
         "date_plein": date_plein,
@@ -1377,7 +1387,7 @@ def fuel_add(request):
 
     school = _user_school(request.user)
     bus = get_object_or_404(Bus, pk=request.POST.get("bus_id"), school=school)
-    data, error = _fuel_form_values(request)
+    data, error = _fuel_form_values(request, bus)
     if error:
         messages.error(request, error)
         return redirect("routing:dashboard")
@@ -1401,7 +1411,7 @@ def driver_fuel_add(request):
     if request.method != "POST":
         return redirect("routing:driver")
 
-    data, error = _fuel_form_values(request)
+    data, error = _fuel_form_values(request, bus)
     if error:
         messages.error(request, error)
         return redirect("routing:driver")

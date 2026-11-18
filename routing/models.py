@@ -5,6 +5,7 @@ from django.conf import settings
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.utils import timezone
+from django.utils.functional import cached_property
 
 
 LATITUDE_VALIDATORS = [MinValueValidator(-90.0), MaxValueValidator(90.0)]
@@ -184,6 +185,28 @@ class Bus(models.Model):
     def fuel_threshold(self):
         """Seuil de surconsommation applicable au bus (L/100 km)."""
         return self.fuel_alert_threshold or FuelRecord.CONSUMPTION_ALERT_L_PER_100KM
+
+    @cached_property
+    def last_odometer_record(self):
+        """Dernier plein renseigné avec un kilométrage (pour l'aide à la saisie)."""
+        return (
+            self.fuel_records.exclude(odometer_km=None)
+            .order_by("-date_plein", "-created_at")
+            .first()
+        )
+
+    def previous_odometer_record(self, date_plein):
+        """Relevé kilométrique précédant (ou daté du même jour que) un plein.
+
+        Sert à refuser un kilométrage saisi par erreur plus petit que le
+        précédent. Un plein antidaté avant tout relevé n'a pas de borne basse.
+        """
+        return (
+            self.fuel_records.exclude(odometer_km=None)
+            .filter(date_plein__lte=date_plein)
+            .order_by("-date_plein", "-created_at")
+            .first()
+        )
 
 
 class BusStop(models.Model):
