@@ -325,11 +325,8 @@ def sitemap_xml_view(request):
             'priority': '0.8',
             'changefreq': 'monthly',
         },
-        {
-            'loc': f"{base}{reverse('routing:login')}",
-            'priority': '0.5',
-            'changefreq': 'monthly',
-        },
+        # La page de connexion est en noindex et interdite dans robots.txt :
+        # elle ne doit pas figurer dans le sitemap.
         {
             'loc': f"{base}{reverse('routing:register_school')}",
             'priority': '0.6',

@@ -20,6 +20,12 @@ services:
         value: "3.12"
       - key: SMS_PROVIDER
         value: "stub"
+      # Domaine public canonique : sitemap, canonical et balises Open Graph.
+      - key: SITE_URL
+        value: "https://www.scolaloop.com"
+      # Code de vérification Google Search Console (à renseigner dans Render).
+      - key: GOOGLE_SITE_VERIFICATION
+        sync: false
 
 databases:
   - name: scolaloop-db

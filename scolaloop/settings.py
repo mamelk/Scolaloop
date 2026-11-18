@@ -173,7 +173,7 @@ LOGGING = {
 
 # ---------------------------------------------------------------- SEO / Référencement Google
 SITE_NAME = os.environ.get('SITE_NAME', 'Scolaloop')
-SITE_URL = os.environ.get('SITE_URL', 'https://scolaloop.onrender.com')
+SITE_URL = os.environ.get('SITE_URL', 'https://www.scolaloop.com')
 SITE_DESCRIPTION = (
     'Scolaloop — Logiciel de gestion de transport scolaire : planification des tournées de bus, '
     'suivi GPS en temps réel, notifications parents, gestion du carburant et de l\'entretien. '
